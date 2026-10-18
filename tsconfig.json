@@ -1,0 +1,9 @@
+{
+  "extends": "./node_modules/expo/tsconfig.base.json",
+  "compilerOptions": {
+    "strict": true,
+    "noEmit": true,
+    "types": ["node", "react"]
+  },
+  "exclude": ["node_modules", "dist"]
+}

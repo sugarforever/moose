@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "Moose",
+    "slug": "moose-mobile",
+    "version": "0.1.0",
+    "scheme": "moose",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "dev.verysmallwoods.moose",
+      "config": {
+        "usesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "dev.verysmallwoods.moose"
+    },
+    "plugins": [
+      "expo-sqlite",
+      "expo-secure-store",
+      "expo-font",
+      "expo-web-browser"
+    ],
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}

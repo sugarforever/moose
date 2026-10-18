@@ -1,0 +1,12 @@
+node_modules/
+.expo/
+dist/
+coverage/
+ios/
+android/
+.env*
+*.sqlite*
+src/generated/
+
+.DS_Store
+*.log
