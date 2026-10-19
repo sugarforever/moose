@@ -1,0 +1,78 @@
+name: Build mobile apps
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Android APK (test signing)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CI: "1"
+      EXPO_NO_TELEMETRY: "1"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22.19.0"
+          cache: npm
+
+      - name: Set up Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Generate portable runtime
+        run: npm run bundle:runtime
+
+      - name: Run tests and type checks
+        run: |
+          npm test
+          npm run typecheck
+          npm run smoke:portable
+
+      - name: Generate Android project
+        run: npx --no-install expo prebuild --platform android --no-install
+
+      # Expo's generated release variant embeds JS/Hermes assets but uses its
+      # debug keystore by default. This APK is for testing, not production signing.
+      - name: Build standalone test APK
+        working-directory: android
+        run: ./gradlew :app:assembleRelease --no-daemon --max-workers=2
+
+      - name: Upload APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: moose-android-test-${{ github.run_number }}
+          path: android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  ios:
+    name: iOS (paused)
+    if: ${{ false }}
+    runs-on: macos-latest
+    steps:
+      - run: echo "iOS builds and TestFlight uploads are paused."

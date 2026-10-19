@@ -39,6 +39,14 @@ npm start
 
 Android USB 连接不到开发服务器时，可执行 `adb reverse tcp:8081 tcp:8081`，然后连接 `http://localhost:8081`。不要转发登录回调的 1455 端口，它由手机本机监听。
 
+## GitHub Actions 构建 APK
+
+`.github/workflows/build.yml` 在向 `main` 提交 PR、推送到 `main`、推送 `v*` 标签或手动选择 **Run workflow** 时运行。Android 在 GitHub 的 Ubuntu runner 上安装锁定依赖、生成 Pi 运行包、运行测试与类型检查，再用 Expo Prebuild 和 Gradle `assembleRelease` 构建 APK，不使用 EAS 云构建，也不需要配置 Secrets。
+
+构建成功后，打开该次 Actions 运行页面，在 **Artifacts** 下载 `moose-android-test-<运行编号>`，解压后安装其中的 APK。包内包含 JavaScript / Hermes 资源，启动无需 Metro 或开发电脑；模型请求仍需网络和用户自己的凭据。附件保留 14 天，目前不自动创建 GitHub Release。
+
+当前 APK 使用 Expo 生成项目的默认测试签名，只供内测。正式公开分发前需配置独立的长期签名密钥；切换签名可能需要卸载旧测试包，卸载会删除本地对话和文件。iOS job 通过 `if: false` 明确跳过，不构建 IPA 或上传 TestFlight。
+
 ## 连接模型
 
 打开「设置」，通过品牌图标选择服务、模型并保存。OpenAI 显示文字标志，Anthropic 显示 AI 标志，ChatGPT 显示结形标志。
