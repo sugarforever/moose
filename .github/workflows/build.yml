@@ -1,11 +1,8 @@
 name: Build mobile apps
 
 on:
-  pull_request:
-    branches: [main]
   workflow_dispatch:
   push:
-    branches: [main]
     tags: ["v*"]
 
 permissions:
@@ -19,6 +16,8 @@ jobs:
   android:
     name: Android APK (test signing)
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     timeout-minutes: 90
     env:
       CI: "1"
@@ -69,6 +68,15 @@ jobs:
           path: android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish Android preview release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" android/app/build/outputs/apk/release/*.apk \
+            --verify-tag --prerelease --title "Moose $GITHUB_REF_NAME (Android preview)" \
+            --notes "Android preview APK with embedded JS/Hermes assets; no Metro required. Uses the default test signing key. iOS is not included. Model access requires your own credentials. Native installation and startup have not yet been verified on an Android device."
 
   ios:
     name: iOS (paused)
