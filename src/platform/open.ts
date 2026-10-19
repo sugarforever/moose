@@ -1,3 +1,4 @@
+import { createExpoWorkspace } from "pi-durable-expo-env";
 import { openDatabaseAsync } from "expo-sqlite";
 import * as SecureStore from "expo-secure-store";
 import { fetch as nativeFetch } from "expo/fetch";
@@ -42,6 +43,8 @@ export async function openMobile() {
     new SerialSqliteDatabase(native),
     models,
     defaultSettings,
+    Date.now,
+    (workspaceId) => createExpoWorkspace({ workspaceId }),
   );
   const settings = await engine.read<ModelSettings>(
     "settings",

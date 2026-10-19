@@ -3,7 +3,7 @@ import { AppState } from "react-native";
 import { randomUUID } from "expo-crypto";
 import { fetch as nativeFetch } from "expo/fetch";
 import { openMobile, credentials, defaultSettings } from "../platform/open";
-import { loadSkill } from "../generated/runtime";
+import { loadSkill, chatMessages } from "../generated/runtime";
 import type {
   MobileEngine,
   ChatMessage,
@@ -133,29 +133,7 @@ export function useMoose() {
       await runtime.engine.write("activeConversation", conversationId);
       const detach = await runtime.engine.watch(conversationId, (view) => {
         if (disposed) return;
-        const next: ChatMessage[] = view.entries.flatMap((entry) =>
-          (entry.model ?? []).flatMap((message) => {
-            if (message.role !== "user" && message.role !== "assistant")
-              return [];
-            const text =
-              typeof message.content === "string"
-                ? message.content
-                : message.content
-                    .filter((block) => block.type === "text")
-                    .map((block) => block.text)
-                    .join("\n");
-            return [
-              {
-                entryId: Number(entry.id),
-                role: message.role,
-                text,
-                error:
-                  message.role === "assistant" &&
-                  ["error", "aborted"].includes(message.stopReason),
-              },
-            ];
-          }),
-        );
+        const next = chatMessages(view);
         setMessages(next);
         const live = view.docs["pi.live"] as unknown as LiveState | undefined;
         setBusy(!!live?.run);

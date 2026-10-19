@@ -100,6 +100,16 @@ export async function loadSkill(
   }
 }
 
+const legacyPreamble =
+  "You are Moose, a helpful mobile assistant. Reply in the user’s language. Skills provide instructions only. No shell, scripts, filesystem tools or external skill resources are available. Never claim to have executed them.";
+const mobilePreamble =
+  "You are Moose, a helpful mobile assistant. Reply in the user’s language. Skills provide instructions only. Use only tools exposed in this conversation. Shell, script execution and external Skill resource loading are unavailable. Never claim to have executed unavailable tools.";
+export function upgradeSkillPrompt(prompt: string) {
+  return prompt.startsWith(legacyPreamble)
+    ? mobilePreamble + prompt.slice(legacyPreamble.length)
+    : prompt;
+}
+
 export function selectedSkillPrompt(
   skills: Skill[],
   selected: string[],
@@ -112,7 +122,7 @@ export function selectedSkillPrompt(
   if (total > 65536)
     throw new Error("Selected skills exceed the 64 KiB prompt limit");
   return [
-    "You are Moose, a helpful mobile assistant. Reply in the user’s language. Skills provide instructions only. No shell, scripts, filesystem tools or external skill resources are available. Never claim to have executed them.",
+    mobilePreamble,
     ...enabled.map(
       (skill) =>
         `\n<skill name=${JSON.stringify(skill.name)}>\n${skill.instructions}\n</skill>`,

@@ -3,6 +3,7 @@ import {
   loadSkill,
   skillSourceUrl,
   selectedSkillPrompt,
+  upgradeSkillPrompt,
 } from "../src/skills/skills";
 
 it("resolves GitHub skill directories and blob files to raw Markdown", () => {
@@ -46,4 +47,17 @@ it("rejects oversized responses and HTML rather than installing a website", asyn
         }),
     ),
   ).rejects.toThrow("Markdown");
+});
+
+it("describes tool availability without denying injected filesystem tools", () => {
+  const prompt = selectedSkillPrompt([], []);
+  expect(prompt).not.toContain("No shell, scripts, filesystem tools");
+  expect(prompt).toContain("tools exposed in this conversation");
+});
+
+it("preserves a legacy sentence quoted inside a Skill when upgrading the app preamble", () => {
+  const legacy =
+    "You are Moose, a helpful mobile assistant. Reply in the user’s language. Skills provide instructions only. No shell, scripts, filesystem tools or external skill resources are available. Never claim to have executed them.";
+  const current = selectedSkillPrompt([], []) + `\n<skill>${legacy}</skill>`;
+  expect(upgradeSkillPrompt(current)).toBe(current);
 });

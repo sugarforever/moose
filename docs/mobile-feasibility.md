@@ -2,17 +2,17 @@
 
 评估对象是 npm 发行的 Pi Durable / Pi AI / Chord 1.3.0。历史项目中发现了 1.1.0 和 1.2.0；不能直接假定这些版本的接口一致。
 
-| 部分                              | 依赖或限制                                            | 本版处理                                                    |
-| --------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------- |
-| Harness、Conversation、任务状态机 | JavaScript、Promise、AbortSignal、Web Crypto 随机数等 | 在 Hermes 内直接运行                                        |
-| 便携 SQLite 核心                  | 需要异步 SqliteDatabase 接口                          | 使用 Expo SQLite 实现串行读写和事务隔离                     |
-| Node SQLite 适配器                | node:sqlite、node:fs、node:path                       | 不进入移动端依赖图                                          |
-| Node 执行环境、CodingTools        | 文件系统、child_process、文件监听                     | 不注册工具，也不打包 Node 环境适配器                        |
-| Code mode、图片 worker            | worker_threads、WASM 等环境能力                       | 本版不启用                                                  |
-| 模型调用                          | fetch、SSE、ReadableStream、TextDecoder               | 使用 Expo fetch 注入 Pi 的模型流式实现                      |
-| 默认凭据发现                      | 环境变量、用户目录和动态 Node 导入                    | 构建时替换为移动端显式凭据回调                              |
-| Pi OAuth 登录                     | Node HTTP 回调监听与部分 Node 加密函数                | 不打包该模块；以独立 HTTPS 设备码或原生 TCP + PKCE 实现替代 |
-| 后台运行                          | iOS / Android 调度限制                                | 保存恢复点，重新打开时恢复，不承诺后台准点执行              |
+| 部分                              | 依赖或限制                                            | 本版处理                                                                     |
+| --------------------------------- | ----------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Harness、Conversation、任务状态机 | JavaScript、Promise、AbortSignal、Web Crypto 随机数等 | 在 Hermes 内直接运行                                                         |
+| 便携 SQLite 核心                  | 需要异步 SqliteDatabase 接口                          | 使用 Expo SQLite 实现串行读写和事务隔离                                      |
+| Node SQLite 适配器                | node:sqlite、node:fs、node:path                       | 不进入移动端依赖图                                                           |
+| Node 执行环境、CodingTools        | 文件系统、child_process、文件监听                     | 不打包 Node 环境；通过 pi-durable-expo-env 注册 read、write、edit，排除 bash |
+| Code mode、图片 worker            | worker_threads、WASM 等环境能力                       | 本版不启用                                                                   |
+| 模型调用                          | fetch、SSE、ReadableStream、TextDecoder               | 使用 Expo fetch 注入 Pi 的模型流式实现                                       |
+| 默认凭据发现                      | 环境变量、用户目录和动态 Node 导入                    | 构建时替换为移动端显式凭据回调                                               |
+| Pi OAuth 登录                     | Node HTTP 回调监听与部分 Node 加密函数                | 不打包该模块；以独立 HTTPS 设备码或原生 TCP + PKCE 实现替代                  |
+| 后台运行                          | iOS / Android 调度限制                                | 保存恢复点，重新打开时恢复，不承诺后台准点执行                               |
 
 安装树中包含 AWS、Google 等 Pi AI 的传递依赖，不代表它们进入手机包。运行包审计只允许选用的 OpenAI 和 Anthropic 实现进入依赖图，并拒绝 Node 存储适配器、执行环境、OAuth、Code mode 和非选用的模型 SDK。
 
@@ -51,3 +51,7 @@
 - [Expo SecureStore](https://docs.expo.dev/versions/latest/sdk/securestore/)
 - [ChatGPT 公开客户端授权](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)
 - [Claude Code 身份验证规则](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use)
+
+## 本地 Expo 文件环境集成
+
+Moose 现通过本地 `pi-durable-expo-env` 注入设备文件系统，复用 Pi 的 read、write、edit 工具。平台工厂位于 `src/platform/open.ts`，运行时只接收便携接口。工作区按对话隔离，检查点不保存或回滚文件。详细语义、原生配置和本次验证见 [文件环境集成说明](mobile-files.md)。

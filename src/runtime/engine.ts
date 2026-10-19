@@ -2,10 +2,12 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Models } from "@earendil-works/pi-ai/models";
 import {
   Harness,
+  LiveDoc,
   createRegistry,
   defineDoc,
   defineExtension,
   defineTask,
+  section,
   type ConversationId,
   type EntryId,
   type TaskId,
@@ -15,7 +17,17 @@ import {
   SqliteStorage,
   type SqliteDatabase,
 } from "@earendil-works/pi-durable/storage/sqlite";
-import { selectedSkillPrompt, type Skill } from "../skills/skills";
+import {
+  selectedSkillPrompt,
+  upgradeSkillPrompt,
+  type Skill,
+} from "../skills/skills";
+import {
+  createReadTool,
+  createWriteTool,
+  createEditTool,
+} from "@earendil-works/pi-durable/tools";
+import { MobileFileEnvironments, type MobileWorkspaceFactory } from "./files";
 
 export interface ModelSettings {
   provider: string;
@@ -113,6 +125,41 @@ const RepeatTask = defineTask<
   },
 });
 
+export function chatMessages(
+  view: Pick<ConversationView, "entries">,
+): ChatMessage[] {
+  return view.entries.flatMap((entry) =>
+    (entry.model ?? []).flatMap((message) => {
+      if (message.role !== "assistant" && message.role !== "user") return [];
+      const text =
+        typeof message.content === "string"
+          ? message.content
+          : message.content
+              .filter((block) => block.type === "text")
+              .map((block) => block.text)
+              .join("\n");
+      if (
+        !text &&
+        !(
+          message.role === "assistant" &&
+          ["error", "aborted"].includes(message.stopReason)
+        )
+      )
+        return [];
+      return [
+        {
+          entryId: Number(entry.id),
+          role: message.role,
+          text,
+          error:
+            message.role === "assistant" &&
+            ["error", "aborted"].includes(message.stopReason),
+        },
+      ];
+    }),
+  );
+}
+
 export class MobileEngine {
   readonly context = BACKGROUND_CONTEXT;
   private disposed = false;
@@ -121,6 +168,7 @@ export class MobileEngine {
     readonly harness: Awaited<ReturnType<typeof Harness.open>>,
     private database: SqliteDatabase,
     private settings: ModelSettings,
+    private files?: MobileFileEnvironments,
   ) {}
 
   static async open(
@@ -128,6 +176,7 @@ export class MobileEngine {
     models: Models,
     settings: ModelSettings,
     now = Date.now,
+    workspaceFactory?: MobileWorkspaceFactory,
   ) {
     await database.exec(
       "CREATE TABLE IF NOT EXISTS moose_data (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
@@ -136,17 +185,53 @@ export class MobileEngine {
     registry.install(
       defineExtension({ name: "moose.tasks", tasks: [RepeatTask] }),
     );
+    const files = workspaceFactory
+      ? new MobileFileEnvironments(workspaceFactory)
+      : undefined;
+    if (files)
+      registry.install(
+        defineExtension({
+          name: "moose.files",
+          tools: [createReadTool(), createWriteTool(), createEditTool()],
+          sections: [
+            section(
+              "mobile-workspace",
+              () =>
+                "Use read, write and edit for files inside /workspace in this conversation’s app-private device workspace. Relative paths start at /workspace. Other conversations and new checkpoint branches have separate workspaces. File contents are not part of a conversation checkpoint. Shell, script execution, web search and external document access are unavailable.",
+            ),
+          ],
+        }),
+      );
     const harness = await Harness.open(
       await SqliteStorage.open(database),
       {
         models,
         registry,
         now,
+        env: files ? (target) => files.get(target) : undefined,
         settings: { progress: { partialIntervalMs: 150 } },
       },
       BACKGROUND_CONTEXT,
     );
-    return new MobileEngine(harness, database, settings);
+    const engine = new MobileEngine(harness, database, settings, files);
+    try {
+      if (files)
+        for (const item of await engine.listConversations())
+          await engine.upgradeFilePrompt(item.id);
+      return engine;
+    } catch (error) {
+      await engine.close();
+      throw error;
+    }
+  }
+  private async upgradeFilePrompt(id: number) {
+    const conversation = await this.conversation(id);
+    const instructions = (await conversation.agent(this.context)).instructions;
+    if (instructions) {
+      const next = upgradeSkillPrompt(instructions);
+      if (next !== instructions)
+        await conversation.configure({ instructions: next }, this.context);
+    }
   }
   async read<T>(key: string, fallback: T): Promise<T> {
     const row = await this.database.get<{ value: string }>(
@@ -284,28 +369,7 @@ export class MobileEngine {
   }
   async messages(id: number): Promise<ChatMessage[]> {
     const view = await (await this.conversation(id)).context(this.context);
-    return view.entries.flatMap((entry) =>
-      (entry.model ?? []).flatMap((message) => {
-        if (message.role !== "assistant" && message.role !== "user") return [];
-        const text =
-          typeof message.content === "string"
-            ? message.content
-            : message.content
-                .filter((block) => block.type === "text")
-                .map((block) => block.text)
-                .join("\n");
-        return [
-          {
-            entryId: Number(entry.id),
-            role: message.role,
-            text,
-            error:
-              message.role === "assistant" &&
-              ["error", "aborted"].includes(message.stopReason),
-          },
-        ];
-      }),
-    );
+    return chatMessages(view);
   }
   async watch(id: number, listener: (view: ConversationView) => void) {
     const watch = await (await this.conversation(id)).watch(this.context);
@@ -314,9 +378,28 @@ export class MobileEngine {
     return () => watch.stop();
   }
   async checkpoint(id: number, label: string): Promise<SavedCheckpoint> {
-    const messages = await this.messages(id);
-    const latest = messages.at(-1);
-    if (!latest || latest.role !== "assistant" || latest.error)
+    const conversation = await this.conversation(id);
+    const [view, live] = await Promise.all([
+      conversation.context(this.context),
+      this.harness.snapshot(LiveDoc, id as ConversationId, this.context),
+    ]);
+    const latest = chatMessages(view).at(-1);
+    const completed = view.entries.some(
+      (entry) =>
+        Number(entry.id) === latest?.entryId &&
+        (entry.model ?? []).some(
+          (message) =>
+            message.role === "assistant" &&
+            ["stop", "length"].includes(message.stopReason),
+        ),
+    );
+    if (
+      live?.run ||
+      !completed ||
+      !latest ||
+      latest.role !== "assistant" ||
+      latest.error
+    )
       throw new Error("Wait for a completed answer before saving a checkpoint");
     const snapshot: SavedCheckpoint = {
       id: `${id}:${latest.entryId}`,
@@ -344,6 +427,7 @@ export class MobileEngine {
       { ownership: { kind: "ownerless" } },
       this.context,
     );
+    if (this.files) await this.upgradeFilePrompt(Number(branch.id));
     await this.write(`title:${branch.id}`, `↳ ${saved.label}`);
     await this.write(
       `skills:${branch.id}`,
@@ -427,7 +511,11 @@ export class MobileEngine {
   async close() {
     if (!this.disposed) {
       this.disposed = true;
-      await this.harness.close(this.context);
+      try {
+        await this.harness.close(this.context);
+      } finally {
+        await this.files?.close(this.context);
+      }
     }
   }
 }

@@ -1,4 +1,4 @@
-export { MobileEngine } from "./engine";
+export { MobileEngine, chatMessages } from "./engine";
 export { SerialSqliteDatabase } from "../storage/database";
 export {
   loadSkill,
