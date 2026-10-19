@@ -54,4 +54,4 @@
 
 ## 本地 Expo 文件环境集成
 
-Moose 现通过本地 `pi-durable-expo-env` 注入设备文件系统，复用 Pi 的 read、write、edit 工具。平台工厂位于 `src/platform/open.ts`，运行时只接收便携接口。工作区按对话隔离，检查点不保存或回滚文件。详细语义、原生配置和本次验证见 [文件环境集成说明](mobile-files.md)。
+Moose 现通过 npm 发布的 `pi-durable-expo-env` 注入设备文件系统，复用 Pi 的 read、write、edit 工具。平台工厂位于 `src/platform/open.ts`，运行时只接收便携接口。工作区按对话隔离，检查点不保存或回滚文件。详细语义、原生配置和本次验证见 [文件环境集成说明](mobile-files.md)。

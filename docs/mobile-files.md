@@ -1,6 +1,6 @@
 # Mobile filesystem integration
 
-Moose consumes the local MIT package `pi-durable-expo-env@0.1.0` from `vendor/pi-durable-expo-env-0.1.0.tgz`. The archive is committed so `npm ci` works without npm publication or a sibling checkout. It is an installed package copy, not a source symlink; this avoids duplicate native modules.
+Moose consumes the published MIT package `pi-durable-expo-env@0.1.0` from npm. package.json pins the exact version; package-lock.json records the registry URL and integrity. No sibling checkout, source symlink or vendored archive is required.
 
 ## Runtime path
 
@@ -12,23 +12,16 @@ The engine upgrades the exact legacy app preamble that denied filesystem tools, 
 
 Limits and unsupported capabilities follow the package: 8 MiB per file, 32 MiB open snapshots per environment, 10,000 directory entries; no shell, script execution, search, watcher, realpath or fsync implementation. The dedicated workspace assumes trusted app/native writers and is not a symlink-safe OS sandbox. There is no document picker or file browser in this integration. Reading a file can send its contents to the selected model provider. Cancellation does not roll back committed file writes.
 
-## Updating the local package
+## Updating the package
 
-In the sibling package checkout:
-
-```sh
-npm run check
-npm pack --pack-destination ../moose/vendor
-```
-
-In Moose:
+After publishing and validating a new adapter version, update Moose explicitly:
 
 ```sh
-npm install ./vendor/pi-durable-expo-env-0.1.0.tgz
+npm install --save-exact pi-durable-expo-env@<version>
 npm run verify
 ```
 
-For a new version, use that version's filename and remove the superseded vendored archive. Commit the archive together with package.json and package-lock.json. Ordinary edits in the sibling source do not update Moose automatically. After npm publication, the dependency can be switched to the chosen registry version.
+Commit package.json and package-lock.json together. Ordinary edits in the independent package source do not update Moose automatically. The original local tarball was removed when switching to the published 0.1.0 release. Its compiled JavaScript and declarations match the published package byte-for-byte; this switch adds no native dependency.
 
 ## Native build
 

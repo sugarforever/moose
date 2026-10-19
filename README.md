@@ -8,7 +8,7 @@ Moose v0.1.0 是面向 iOS 和 Android 的本地优先 AI 对话应用。Expo / 
 - 检查点与历史分支，通过对话右上角的更多菜单保存检查点，在任务页恢复。
 - 有限次数的重复任务、进度保存、停止和重启恢复。
 - 通过 HTTPS URL 安装 Skill，为每个对话独立启用。
-- 使用本地 `pi-durable-expo-env` 提供 read、write、edit 文件工具，每个对话拥有独立的设备私有工作区。
+- 使用 `pi-durable-expo-env` 提供 read、write、edit 文件工具，每个对话拥有独立的设备私有工作区。
 - OpenAI / Anthropic API Key，以及实验性的 ChatGPT / Codex 订阅登录。
 - 紧凑对话布局、系统消息操作菜单和键盘避让。
 
@@ -78,7 +78,7 @@ Skill 支持 SKILL.md 直链、GitHub 文件、目录和仓库根目录 URL。�
 
 单个文件限制为 8 MiB。只提供 read、write、edit，不支持 Shell、脚本执行或搜索。读取的文件内容会作为工具结果进入模型上下文，可能发送给当前模型服务商。
 
-本地开发包以 `vendor/pi-durable-expo-env-0.1.0.tgz` 安装，无须先发布 npm，也不会直接引用同级目录的源码。修改独立包后，需要重新打包并安装，才能在 Moose 中生效。更新步骤、受控原生测试入口和验证记录见 [文件环境集成说明](docs/mobile-files.md)。
+文件环境使用 npm 发布的 `pi-durable-expo-env@0.1.0`，版本与完整性由锁文件固定，不依赖同级目录的源码或本地 tarball。更新步骤、受控原生测试入口和验证记录见 [文件环境集成说明](docs/mobile-files.md)。
 
 ## 验证
 
