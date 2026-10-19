@@ -9,3 +9,5 @@
 参考：[Apple Context menus](https://developer.apple.com/design/human-interface-guidelines/context-menus)、[Apple Layout](https://developer.apple.com/design/human-interface-guidelines/layout)。验收：模拟器检查已有消息布局、长按菜单、键盘显示与收起，不触发真实模型请求；运行类型检查和现有测试。
 
 本轮验证：类型检查与现有 34 项测试通过。iPhone 17 Pro 模拟器检查了现有多轮对话、原生消息操作菜单以及键盘展开布局；菜单验证通过无障碍“消息选项”调用与长按相同的处理函数，选择取消，未实际重新发送。iOS KeyboardAvoidingView 需要传入顶部安全区偏移，避免输入框被键盘遮挡。Android 本轮未做设备验证。
+
+开发构建默认隐藏 Expo 的悬浮工具按钮，避免覆盖历史对话弹层右上角的关闭动作。开发菜单仍可通过模拟器快捷键或摇动手势打开。本次在原来的 iPhone 17 Pro 模拟器中复现重叠，隐藏浮钮后验证历史弹层的打开、关闭及返回对话；类型检查通过，未发送模型请求。

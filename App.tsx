@@ -21,6 +21,7 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
+import { setToolsButtonVisible } from "expo-dev-client";
 import { useMoose } from "./src/ui/useMoose";
 import { TasksScreen, SkillsScreen, SettingsScreen } from "./src/ui/screens";
 import {
@@ -43,6 +44,9 @@ const tabs: { id: Tab; label: string; icon: IconName }[] = [
 ];
 
 export default function App() {
+  useEffect(() => {
+    if (__DEV__) setToolsButtonVisible(false);
+  }, []);
   return (
     <SafeAreaProvider>
       <StatusBar style="dark" />
