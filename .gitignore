@@ -2,8 +2,8 @@ node_modules/
 .expo/
 dist/
 coverage/
-ios/
-android/
+/ios/
+/android/
 .env*
 *.sqlite*
 src/generated/

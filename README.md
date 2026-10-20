@@ -84,11 +84,11 @@ Skill 支持 SKILL.md 直链、GitHub 文件、目录和仓库根目录 URL。�
 
 检查点保存对话历史，不保存文件快照。恢复检查点会创建新对话和空工作区，不复制原对话文件，也不回滚磁盘内容。原对话的文件保持不变。
 
-单个文件限制为 8 MiB。只提供 read、write、edit，不支持 Shell、脚本执行或搜索。读取的文件内容会作为工具结果进入模型上下文，可能发送给当前模型服务商。
+单个文件限制为 8 MiB。默认的 Expo 环境只提供 read、write、edit，不支持 Shell、脚本执行或搜索。读取的文件内容会作为工具结果进入模型上下文，可能发送给当前模型服务商。
 
 文件环境使用 npm 发布的 `pi-durable-expo-env@0.1.0`，版本与完整性由锁文件固定，不依赖同级目录的源码或本地 tarball。更新步骤、受控原生测试入口和验证记录见 [文件环境集成说明](docs/mobile-files.md)。
 
-iOS iSH 原生执行仍处于独立可行性探针阶段，尚未接入应用。构建步骤、验证结果和阻塞项见 [iOS iSH 实验](docs/ios-ish-execution.md)。
+iOS 可选用实验性的 iSH 本地 Linux 环境，让 Pi 文件工具和真实 POSIX shell 共用同一对话工作区。先运行 `npm run prepare:ish` 生成原生依赖，再用 `EXPO_PUBLIC_MOOSE_ISH=1 npm run ios` 重编开发客户端并启用。默认仍使用 Expo 文件环境；两种环境的文件不自动迁移。iSH 网络访问关闭，命令受输出、时间和资源限制，应用挂起时可能暂停。构建前提、验证结果、容量限制和 GPL 再分发义务见 [iOS iSH 执行环境](docs/ios-ish-execution.md)。
 
 ## 验证
 
@@ -97,7 +97,7 @@ npm run verify
 npx expo-doctor
 ```
 
-`verify` 包含运行包生成、41 项单元与集成测试、TypeScript 检查、无 Node 全局变量的 Pi Durable / SQLite / Codex 模拟链路，以及 Android 和 iOS 的 Hermes 发布资源导出。
+`verify` 包含运行包生成、45 项单元与集成测试、TypeScript 检查、无 Node 全局变量的 Pi Durable / SQLite / Codex 模拟链路，以及 Android 和 iOS 的 Hermes 发布资源导出。
 
 当前验证范围：
 

@@ -17,8 +17,8 @@ with tempfile.TemporaryDirectory(prefix='moose-ish-boundary-') as directory:
     sentinel = b'controlled-host-sentinel'
     Path(directory, 'marker').write_bytes(sentinel)
     result = subprocess.run([str(a.runner.resolve()), str(a.root.resolve()), '/', '--',
-        '/bin/sh', '-c', 'printf "MOOSE_AUDIT_READY\\n"; mkdir -p /mnt/boundary || exit 92; '
-        'if mount -t real "$1" /mnt/boundary; then cat /mnt/boundary/marker; '
+        '/bin/sh', '-c', 'printf "MOOSE_AUDIT_READY\\n"; mkdir -p /workspace/.mount-boundary || exit 92; '
+        'if mount -t real "$1" /workspace/.mount-boundary; then cat /workspace/.mount-boundary/marker; '
         'else printf "MOOSE_AUDIT_DENIED\\n"; exit 17; fi',
         'audit', directory], env={}, capture_output=True, timeout=10)
     if not result.stdout.startswith(b'MOOSE_AUDIT_READY\n'):

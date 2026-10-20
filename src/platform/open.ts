@@ -9,6 +9,7 @@ import {
 } from "../generated/runtime";
 import type { ModelSettings } from "../runtime/engine";
 import { codexAuth } from "./codex";
+import { createIshWorkspaceFactory } from "./ish";
 
 export const defaultSettings: ModelSettings = {
   provider: "openai",
@@ -44,7 +45,9 @@ export async function openMobile() {
     models,
     defaultSettings,
     Date.now,
-    (workspaceId) => createExpoWorkspace({ workspaceId }),
+    process.env.EXPO_PUBLIC_MOOSE_ISH === "1"
+      ? createIshWorkspaceFactory()
+      : (workspaceId) => createExpoWorkspace({ workspaceId }),
   );
   const settings = await engine.read<ModelSettings>(
     "settings",

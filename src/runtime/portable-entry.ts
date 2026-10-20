@@ -7,3 +7,5 @@ export {
 } from "../skills/skills";
 export { createMobileModels } from "./providers";
 export { CodexAuth, CodexAuthError } from "../auth/codex";
+
+export { createIshWorkspace } from "./ish";

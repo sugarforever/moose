@@ -1,0 +1,14 @@
+{
+  "name": "moose-ish",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.js",
+  "license": "UNLICENSED",
+  "files": [
+    "ios",
+    "MooseISH.podspec",
+    "react-native.config.js",
+    "index.js",
+    "vendor"
+  ]
+}

@@ -55,3 +55,7 @@
 ## 本地 Expo 文件环境集成
 
 Moose 现通过 npm 发布的 `pi-durable-expo-env` 注入设备文件系统，复用 Pi 的 read、write、edit 工具。平台工厂位于 `src/platform/open.ts`，运行时只接收便携接口。工作区按对话隔离，检查点不保存或回滚文件。详细语义、原生配置和本次验证见 [文件环境集成说明](mobile-files.md)。
+
+## 可选 iOS iSH 环境
+
+`EXPO_PUBLIC_MOOSE_ISH=1` 可启用原生 iSH 后端，通过便携 `ExecutionEnv` 提供文件工具和 POSIX shell。核心通过显式桥接注入，不引入 Node 执行环境；Android 和默认 Expo 文件环境不启用 shell。原生编译、受控 SSE 工具链、权限和资源边界见 [iOS iSH 执行环境](ios-ish-execution.md)。

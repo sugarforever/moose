@@ -12,7 +12,9 @@
     "bundle:runtime": "node scripts/bundle-runtime.mjs",
     "export": "npm run bundle:runtime && expo export --platform ios --platform android",
     "smoke:portable": "npm run bundle:runtime && node scripts/smoke-portable.mjs",
-    "verify": "npm run bundle:runtime && npm test && npm run typecheck && npm run smoke:portable && npm run export"
+    "verify": "npm run bundle:runtime && npm test && npm run typecheck && npm run smoke:portable && npm run export",
+    "prepare:ish": "python3 scripts/ish/prepare_native.py --cache /tmp/moose-ish-embedded",
+    "test:ish": "node scripts/ish/verify.mjs"
   },
   "dependencies": {
     "@earendil-works/chord": "1.3.0",
@@ -29,6 +31,7 @@
     "expo-sqlite": "~58.0.13",
     "expo-status-bar": "~58.0.3",
     "expo-web-browser": "~58.0.6",
+    "moose-ish": "file:modules/moose-ish",
     "pi-durable-expo-env": "0.1.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",

@@ -27,6 +27,7 @@ import {
   createWriteTool,
   createEditTool,
 } from "@earendil-works/pi-durable/tools";
+import { createIshBashTool } from "./ish";
 import { MobileFileEnvironments, type MobileWorkspaceFactory } from "./files";
 
 export interface ModelSettings {
@@ -169,6 +170,7 @@ export class MobileEngine {
     private database: SqliteDatabase,
     private settings: ModelSettings,
     private files?: MobileFileEnvironments,
+    private shell = false,
   ) {}
 
   static async open(
@@ -188,16 +190,22 @@ export class MobileEngine {
     const files = workspaceFactory
       ? new MobileFileEnvironments(workspaceFactory)
       : undefined;
+    const shell = workspaceFactory?.shell === true;
     if (files)
       registry.install(
         defineExtension({
           name: "moose.files",
-          tools: [createReadTool(), createWriteTool(), createEditTool()],
+          tools: [
+            createReadTool(),
+            createWriteTool(),
+            createEditTool(),
+            ...(shell ? [createIshBashTool()] : []),
+          ],
           sections: [
-            section(
-              "mobile-workspace",
-              () =>
-                "Use read, write and edit for files inside /workspace in this conversation’s app-private device workspace. Relative paths start at /workspace. Other conversations and new checkpoint branches have separate workspaces. File contents are not part of a conversation checkpoint. Shell, script execution, web search and external document access are unavailable.",
+            section("mobile-workspace", () =>
+              shell
+                ? "Use read, write and edit for files inside /workspace and bash for the local iSH POSIX shell. They share this conversation’s persistent guest files. Other conversations and new checkpoint branches have separate roots. Files are not checkpointed. Network access is unavailable. iOS suspension may pause commands."
+                : "Use read, write and edit for files inside /workspace in this conversation’s app-private device workspace. Relative paths start at /workspace. Other conversations and new checkpoint branches have separate workspaces. File contents are not part of a conversation checkpoint. Shell, script execution, web search and external document access are unavailable.",
             ),
           ],
         }),
@@ -213,7 +221,7 @@ export class MobileEngine {
       },
       BACKGROUND_CONTEXT,
     );
-    const engine = new MobileEngine(harness, database, settings, files);
+    const engine = new MobileEngine(harness, database, settings, files, shell);
     try {
       if (files)
         for (const item of await engine.listConversations())
@@ -228,7 +236,7 @@ export class MobileEngine {
     const conversation = await this.conversation(id);
     const instructions = (await conversation.agent(this.context)).instructions;
     if (instructions) {
-      const next = upgradeSkillPrompt(instructions);
+      const next = upgradeSkillPrompt(instructions, this.shell);
       if (next !== instructions)
         await conversation.configure({ instructions: next }, this.context);
     }
@@ -265,7 +273,7 @@ export class MobileEngine {
         ownership: { kind: "ownerless" },
         agent: {
           model: this.settings,
-          instructions: selectedSkillPrompt([], []),
+          instructions: selectedSkillPrompt([], [], this.shell),
         },
       },
       this.context,
@@ -287,7 +295,7 @@ export class MobileEngine {
     skills: Skill[],
     selected: string[],
   ) {
-    const prompt = selectedSkillPrompt(skills, selected);
+    const prompt = selectedSkillPrompt(skills, selected, this.shell);
     await (
       await this.conversation(id)
     ).configure({ model: settings, instructions: prompt }, this.context);
@@ -341,7 +349,7 @@ export class MobileEngine {
           await (
             await this.conversation(conversation.id)
           ).configure(
-            { instructions: selectedSkillPrompt(installed, next) },
+            { instructions: selectedSkillPrompt(installed, next, this.shell) },
             this.context,
           );
           await this.write(`skills:${conversation.id}`, next);

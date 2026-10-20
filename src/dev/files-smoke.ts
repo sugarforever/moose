@@ -19,7 +19,7 @@ function sseResponse(body: string): Response {
     });
   return response;
 }
-function responseEvents(step: number) {
+function responseEvents(step: number, shell = false) {
   const calls = [
     {
       name: "write",
@@ -32,6 +32,17 @@ function responseEvents(step: number) {
         edits: [{ oldText: "Hello", newText: "你好" }],
       },
     },
+    ...(shell
+      ? [
+          {
+            name: "bash",
+            arguments: {
+              command:
+                'printf " guest" >> notes/smoke.txt; cat notes/smoke.txt',
+            },
+          },
+        ]
+      : []),
     { name: "read", arguments: { path: "notes/smoke.txt" } },
   ];
   const call = calls[step];
@@ -136,7 +147,7 @@ export async function runFileSmoke(
       if (request.url !== "https://api.openai.com/v1/responses")
         throw new Error("Unexpected fixture transport URL");
       requests.push(await request.text());
-      return respond(responseEvents(step++));
+      return respond(responseEvents(step++, workspaceFactory.shell));
     },
   );
   const settings = { provider: "openai", modelId: "gpt-4.1-mini" };
@@ -159,18 +170,22 @@ export async function runFileSmoke(
       )
     ).wait(engine.context);
     assert(
-      receipt.status === "done" && step === 4,
-      "Moose → OpenAI SSE → Pi write/edit/read",
+      receipt.status === "done" && step === (workspaceFactory.shell ? 5 : 4),
+      workspaceFactory.shell
+        ? "Moose → OpenAI SSE → Pi write/edit/bash/read"
+        : "Moose → OpenAI SSE → Pi write/edit/read",
     );
     assert(
       requests[0].includes('"name":"write"') &&
         requests[0].includes('"name":"edit"') &&
         requests[0].includes('"name":"read"') &&
-        !requests[0].includes('"name":"bash"'),
+        requests[0].includes('"name":"bash"') === !!workspaceFactory.shell,
       "Only supported tools advertised",
     );
     assert(
-      requests[3].includes("你好 Moose"),
+      requests[workspaceFactory.shell ? 4 : 3].includes(
+        workspaceFactory.shell ? "你好 Moose guest" : "你好 Moose",
+      ),
       "Read result reaches the next model request",
     );
     const messages = await engine.messages(chat.id);
@@ -206,7 +221,9 @@ export async function runFileSmoke(
         engine.context,
       );
       assert(
-        content.ok && content.value === "你好 Moose",
+        content.ok &&
+          content.value ===
+            (workspaceFactory.shell ? "你好 Moose guest" : "你好 Moose"),
         "File persists across engine / SQLite reopen",
       );
       const rejected = await reopened.writeFile(
