@@ -88,6 +88,8 @@ Skill 支持 SKILL.md 直链、GitHub 文件、目录和仓库根目录 URL。�
 
 文件环境使用 npm 发布的 `pi-durable-expo-env@0.1.0`，版本与完整性由锁文件固定，不依赖同级目录的源码或本地 tarball。更新步骤、受控原生测试入口和验证记录见 [文件环境集成说明](docs/mobile-files.md)。
 
+iOS iSH 原生执行仍处于独立可行性探针阶段，尚未接入应用。构建步骤、验证结果和阻塞项见 [iOS iSH 实验](docs/ios-ish-execution.md)。
+
 ## 验证
 
 ```sh

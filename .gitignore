@@ -10,3 +10,5 @@ src/generated/
 
 .DS_Store
 *.log
+
+scripts/ish/__pycache__/
