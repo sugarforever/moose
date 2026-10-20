@@ -11,6 +11,20 @@ import {
 } from "@earendil-works/pi-durable/env";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { encode, decode, hex, fileMethods } from "./wire";
+import type { RequestDiagnostic, RequestResult } from "./diagnostics";
+
+export class TermuxTransportError extends Error {
+  constructor(
+    readonly kind: Exclude<
+      RequestResult,
+      "stage" | "ok" | "file_error" | "shell_error"
+    >,
+    message: string,
+  ) {
+    super(message);
+    this.name = "TermuxTransportError";
+  }
+}
 export type Rpc = ((
   workspace: string,
   cwd: string,
@@ -24,42 +38,124 @@ export function signedTransport(
   seed: Uint8Array,
   fetcher: typeof fetch,
   uuid: () => string,
+  report?: (event: RequestDiagnostic) => void,
 ): Rpc {
   if (!/^http:\/\/127\.0\.0\.1:\d+\/$/.test(url))
     throw new Error("Termux requires an IPv4 loopback URL");
   const rpc: Rpc = async (workspace, cwd, op, args, context, requestId) => {
-    const body = JSON.stringify({
-      id: requestId ?? uuid(),
-      time: Date.now(),
-      workspace,
-      cwd,
-      op,
-      args: encode(args),
-    });
-    const signature = hex(ed25519.sign(new TextEncoder().encode(body), seed));
+    const started = Date.now();
+    let result: RequestResult = "network";
+    let code: string | undefined;
+    let interrupted: TermuxTransportError | undefined;
     const controller = new AbortController();
-    const abort = () => controller.abort();
-    if (context.abortSignal?.aborted) abort();
+    let rejectAbort: (error: Error) => void = () => {};
+    const stopped = new Promise<never>((_, reject) => {
+      rejectAbort = reject;
+    });
+    const stop = (kind: "cancelled" | "timeout") => {
+      if (interrupted) return;
+      interrupted = new TermuxTransportError(
+        kind,
+        kind === "timeout"
+          ? "Termux request timed out (15s); outcome unknown. Check or repair connection before retrying."
+          : "Termux request cancelled by the calling task; outcome may be unknown.",
+      );
+      rejectAbort(interrupted);
+      controller.abort();
+    };
+    const abort = () => stop("cancelled");
     context.abortSignal?.addEventListener("abort", abort, { once: true });
-    const timeout = setTimeout(abort, 15000);
+    const timer = setTimeout(() => stop("timeout"), 15000);
     try {
-      const response = await fetcher(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Moose-Signature": signature,
-        },
-        body,
-        signal: controller.signal,
-      });
-      if (!response.ok)
-        throw new Error(`Termux connection rejected (${response.status})`);
-      const result = decode(await response.json());
-      if (result?.transportError) throw new Error(result.transportError);
-      return result;
+      const request = async () => {
+        if (context.abortSignal?.aborted) {
+          // Avoid sending a mutation after the owner has already cancelled it.
+          throw new TermuxTransportError(
+            "cancelled",
+            "Termux request cancelled before sending.",
+          );
+        }
+        const body = JSON.stringify({
+          id: requestId ?? uuid(),
+          time: Date.now(),
+          workspace,
+          cwd,
+          op,
+          args: encode(args),
+        });
+        const signature = hex(
+          ed25519.sign(new TextEncoder().encode(body), seed),
+        );
+        const response = await fetcher(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Moose-Signature": signature,
+          },
+          body,
+          signal: controller.signal,
+        });
+        if (!response.ok)
+          throw new TermuxTransportError(
+            "rejected",
+            `Termux connection rejected (${response.status}). Check or repair connection.`,
+          );
+        let value;
+        try {
+          value = decode(await response.json());
+        } catch (error) {
+          if (controller.signal.aborted) throw interrupted;
+          throw new TermuxTransportError(
+            "protocol",
+            "Termux response is invalid. Check the service version and repair connection.",
+          );
+        }
+        if (value?.transportError)
+          throw new TermuxTransportError(
+            "service",
+            String(value.transportError),
+          );
+        if (
+          !value ||
+          typeof value !== "object" ||
+          (typeof value.ok !== "boolean" &&
+            !(op === "poll" && Array.isArray(value.events)))
+        )
+          throw new TermuxTransportError(
+            "protocol",
+            "Termux response is invalid. Check the service version and repair connection.",
+          );
+        return value;
+      };
+      const value = await Promise.race([request(), stopped]);
+      const error =
+        value.ok === false
+          ? value.error
+          : op === "poll" && value.result?.ok === false
+            ? value.result.error
+            : undefined;
+      result = error
+        ? error instanceof ExecutionError
+          ? "shell_error"
+          : "file_error"
+        : "ok";
+      code = error?.code;
+      return value;
+    } catch (error) {
+      const failure =
+        interrupted ??
+        (error instanceof TermuxTransportError
+          ? error
+          : new TermuxTransportError(
+              "network",
+              "Termux transport interrupted or unavailable; cancellation source unknown. Check or repair connection.",
+            ));
+      result = failure.kind;
+      throw failure;
     } finally {
-      clearTimeout(timeout);
+      clearTimeout(timer);
       context.abortSignal?.removeEventListener("abort", abort);
+      report?.({ op, result, code, elapsedMs: Date.now() - started });
     }
   };
   rpc.newId = uuid;

@@ -4,13 +4,19 @@ import * as SecureStore from "expo-secure-store";
 import { getRandomBytes, randomUUID } from "expo-crypto";
 import { fetch as nativeFetch } from "expo/fetch";
 import { ed25519 } from "@noble/curves/ed25519.js";
-import { TermuxEnvironment, signedTransport } from "../termux/environment";
+import {
+  TermuxEnvironment,
+  signedTransport,
+  TermuxTransportError,
+} from "../termux/environment";
 import {
   TermuxSetup,
   type NativeSetupStatus,
   type SetupPhase,
   type ProbeResult,
 } from "../termux/setup";
+import { termuxDiagnostics } from "../termux/diagnostics";
+import { runTermuxSelfTest, type SelfTestPhase } from "../termux/self-test";
 import { hex, unhex } from "../termux/wire";
 import {
   BACKGROUND_CONTEXT,
@@ -86,6 +92,7 @@ export const termux = {
           seed,
           nativeFetch as typeof fetch,
           randomUUID,
+          termuxDiagnostics.record,
         );
         const probe = async (
           probeSignal: AbortSignal,
@@ -111,6 +118,8 @@ export const termux = {
             const message =
               error instanceof Error ? error.message : String(error);
             if (
+              (error instanceof TermuxTransportError &&
+                ["rejected", "protocol", "service"].includes(error.kind)) ||
               /rejected|Unsupported operation|Unexpected token|JSON/.test(
                 message,
               )
@@ -120,7 +129,15 @@ export const termux = {
           }
         };
         const setup = new TermuxSetup({ native: native(), probe });
-        await setup.run(hex(ed25519.getPublicKey(seed)), signal, onPhase);
+        const started = Date.now();
+        await setup.run(hex(ed25519.getPublicKey(seed)), signal, (phase) => {
+          termuxDiagnostics.record({
+            op: `setup.${phase}`,
+            result: "stage",
+            elapsedMs: Date.now() - started,
+          });
+          onPhase(phase);
+        });
       }
       signal.throwIfAborted();
       await SecureStore.setItemAsync(ENABLED, enabled ? "yes" : "no");
@@ -128,6 +145,24 @@ export const termux = {
         await SecureStore.setItemAsync(ENABLED, previous ?? "no");
         signal.throwIfAborted();
       }
+    }),
+  selfTest: (signal: AbortSignal, onPhase: (phase: SelfTestPhase) => void) =>
+    exclusive(async () => {
+      native();
+      const seed = await readSeed();
+      const rpc = signedTransport(
+        URL,
+        seed,
+        nativeFetch as typeof fetch,
+        randomUUID,
+        termuxDiagnostics.record,
+      );
+      await runTermuxSelfTest(
+        rpc,
+        randomUUID(),
+        withAbortSignal(signal, BACKGROUND_CONTEXT),
+        onPhase,
+      );
     }),
   factory: () =>
     exclusive(async () => {
@@ -143,6 +178,7 @@ export const termux = {
         seed,
         nativeFetch as typeof fetch,
         randomUUID,
+        termuxDiagnostics.record,
       );
       return (workspaceId: string) =>
         new TermuxEnvironment(`m-${namespace}-${workspaceId}`, rpc);
