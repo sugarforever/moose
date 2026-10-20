@@ -70,3 +70,12 @@ it("upgrades the prior file-only preamble without changing appended skill instru
     selectedSkillPrompt([], []) + skill,
   );
 });
+
+it("upgrades the native-only preamble before enabling Termux without changing Skill text", () => {
+  const old =
+    "You are Moose, a helpful mobile assistant. Reply in the user’s language. Skills provide instructions only. Use only tools exposed in this conversation. Shell and script execution are unavailable. Read Skill resources only through available resource tools. Never claim to have executed unavailable tools.";
+  const suffix = "\n<skill>Keep native data unchanged</skill>";
+  expect(upgradeSkillPrompt(old + suffix)).toBe(
+    selectedSkillPrompt([], []) + suffix,
+  );
+});

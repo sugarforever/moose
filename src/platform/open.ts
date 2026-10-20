@@ -9,6 +9,9 @@ import {
 } from "../generated/runtime";
 import type { ModelSettings } from "../runtime/engine";
 import { termux } from "./termux";
+import { PermissionStore } from "../generated/runtime";
+import { approvals, openCapabilityDatabase } from "./capabilities";
+import type { Skill } from "../skills/skills";
 import { codexAuth } from "./codex";
 
 export const defaultSettings: ModelSettings = {
@@ -41,12 +44,40 @@ export async function openMobile() {
     (signal) => codexAuth.getAccessToken(signal),
   );
   const termuxFactory = await termux.factory();
+  const database = new SerialSqliteDatabase(native);
+  const permissions = await PermissionStore.open(database, async (request) => {
+    const row = await database.get<{ value: string }>(
+      "SELECT value FROM moose_data WHERE key='skills'",
+    );
+    const skill = (row ? (JSON.parse(row.value) as Skill[]) : []).find(
+      (s) => s.id === request.skillId,
+    );
+    const title = await database.get<{ value: string }>(
+      "SELECT value FROM moose_data WHERE key=?",
+      `title:${request.conversationId}`,
+    );
+    return (
+      (!request.skillId || !!skill) &&
+      approvals.request(
+        request,
+        skill?.name ?? "Moose · 当前对话",
+        title
+          ? (JSON.parse(title.value) as string)
+          : `对话 ${request.conversationId}`,
+      )
+    );
+  });
   const engine = await MobileEngine.open(
-    new SerialSqliteDatabase(native),
+    database,
     models,
     defaultSettings,
     Date.now,
     termuxFactory ?? ((workspaceId) => createExpoWorkspace({ workspaceId })),
+    {
+      openDatabase: openCapabilityDatabase,
+      fetcher: nativeFetch as typeof fetch,
+      authorize: (...args) => permissions.authorize(...args),
+    },
     { shell: !!termuxFactory },
   );
   const settings = await engine.read<ModelSettings>(
@@ -54,5 +85,11 @@ export async function openMobile() {
     defaultSettings,
   );
   engine.updateSettings(settings);
-  return { engine, models, settings };
+  return {
+    engine,
+    models,
+    settings,
+    permissions,
+    executionEnvironment: termuxFactory ? "termux" : "local",
+  };
 }
