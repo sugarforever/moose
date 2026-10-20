@@ -45,7 +45,7 @@ it("installs offline service and waits for signed matching readiness", async () 
   const f = fixture();
   await f.run();
   expect(f.native.start).toHaveBeenCalledWith(key);
-  expect(f.phases).toEqual(["checking", "installing", "connecting", "ready"]);
+  expect(f.phases).toEqual(["checking", "installing", "ready"]);
   expect(f.native.stopBootstrap).toHaveBeenCalledTimes(1);
 });
 it("reuses matching running service without install permission", async () => {

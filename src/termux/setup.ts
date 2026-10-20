@@ -127,7 +127,6 @@ export class TermuxSetup {
         const started = await wait(() => native.start(publicKey));
         if (started.assetHash !== status.assetHash)
           throw new Error("Packaged service changed during setup. Retry.");
-        onPhase("connecting");
         while (true) {
           const current = await wait(() => native.status());
           if (current.lastError) throw new Error(current.lastError);

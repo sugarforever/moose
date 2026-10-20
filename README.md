@@ -1,6 +1,6 @@
 # Moose
 
-Moose v0.2.0 is a local-first AI chat app for iOS and Android. Expo / React Native provides the interface, Pi Durable runs on the phone's Hermes runtime, and SQLite stores conversations and tasks. Model requests go directly to the provider; no Moose backend is required.
+Moose v0.2.1 is a local-first AI chat app for iOS and Android. Expo / React Native provides the interface, Pi Durable runs on the phone's Hermes runtime, and SQLite stores conversations and tasks. Model requests go directly to the provider; no Moose backend is required.
 
 ## Features
 
@@ -105,7 +105,9 @@ mkdir -p ~/.termux && printf '\nallow-external-apps = true\n' >> ~/.termux/termu
 ```
 
 5. Tap **Set up and connect Termux**. Keep Moose in the foreground with network access until checks, installation, and connection finish. The initial Termux package download may take several minutes. On success, Moose shows that Termux is connected and switches the current environment to Termux without restarting.
-6. Start a new conversation and send: “Create hello.txt in the current workspace, write hello into it, then read it with bash.” This uses your configured model connection and may incur model charges. Configure model credentials only in Moose, never in Termux.
+6. Tap **运行自检（不调用模型）** (run self-test without a model). It checks signed communication, temporary file writes/reads, and bash in a reserved diagnostic workspace, then removes its temporary directory. It does not use model credentials or change conversation files. A passing self-test checks this execution path at that time; it does not guarantee background availability.
+
+The selected environment is separate from the most recent communication result and timestamp. **查看诊断记录** shows up to 40 session-only metadata records that can be selected and copied; restarting Moose clears them. Records contain operation, local correlation number, result, time and duration, without paths, commands, content or credentials. A file-not-found response means the service responded; it is not a connection failure. Timeouts, calling-task cancellation and transport interruption are reported separately; an unexplained native cancellation is not attributed to the user or Android without evidence.
 
 After restarting the phone or after Android terminates Termux, tap **Check or repair connection** in Moose Settings. Use **Use local files** to return to the local environment. Finish or stop active responses, pending submissions, and recurring tasks before switching. Switching does not migrate files or delete native databases or historical reports.
 
