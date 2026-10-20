@@ -27,7 +27,17 @@ import {
   createWriteTool,
   createEditTool,
 } from "@earendil-works/pi-durable/tools";
-import { MobileFileEnvironments, type MobileWorkspaceFactory } from "./files";
+import {
+  MobileFileEnvironments,
+  workspaceListTool,
+  type MobileWorkspaceFactory,
+} from "./files";
+
+import {
+  CapabilityService,
+  type CapabilityOptions,
+} from "../capabilities/service";
+import { capabilityExtension } from "../capabilities/tools";
 
 export interface ModelSettings {
   provider: string;
@@ -169,6 +179,7 @@ export class MobileEngine {
     private database: SqliteDatabase,
     private settings: ModelSettings,
     private files?: MobileFileEnvironments,
+    readonly capabilities?: CapabilityService,
   ) {}
 
   static async open(
@@ -177,6 +188,7 @@ export class MobileEngine {
     settings: ModelSettings,
     now = Date.now,
     workspaceFactory?: MobileWorkspaceFactory,
+    capabilityOptions?: Omit<CapabilityOptions, "skills">,
   ) {
     await database.exec(
       "CREATE TABLE IF NOT EXISTS moose_data (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
@@ -192,16 +204,41 @@ export class MobileEngine {
       registry.install(
         defineExtension({
           name: "moose.files",
-          tools: [createReadTool(), createWriteTool(), createEditTool()],
+          tools: [
+            createReadTool(),
+            createWriteTool(),
+            createEditTool(),
+            workspaceListTool(),
+          ],
           sections: [
             section(
               "mobile-workspace",
               () =>
-                "Use read, write and edit for files inside /workspace in this conversation’s app-private device workspace. Relative paths start at /workspace. Other conversations and new checkpoint branches have separate workspaces. File contents are not part of a conversation checkpoint. Shell, script execution, web search and external document access are unavailable.",
+                "Use read, write, edit and workspace_list for files inside /workspace in this conversation’s app-private device workspace. Relative paths start at /workspace. Other conversations and new checkpoint branches have separate workspaces. File contents are not part of a conversation checkpoint. Shell, script execution, web search and external document access are unavailable.",
             ),
           ],
         }),
       );
+    const enabledSkills = async (id: number) => {
+      const installed = await database.get<{ value: string }>(
+        "SELECT value FROM moose_data WHERE key='skills'",
+      );
+      const selection = await database.get<{ value: string }>(
+        "SELECT value FROM moose_data WHERE key=?",
+        `skills:${id}`,
+      );
+      const selected = selection
+        ? (JSON.parse(selection.value) as string[])
+        : [];
+      return (installed ? (JSON.parse(installed.value) as Skill[]) : []).filter(
+        (s) => selected.includes(s.id),
+      );
+    };
+    const capabilities = capabilityOptions
+      ? new CapabilityService({ ...capabilityOptions, skills: enabledSkills })
+      : undefined;
+    if (capabilities)
+      registry.install(capabilityExtension(capabilities, enabledSkills));
     const harness = await Harness.open(
       await SqliteStorage.open(database),
       {
@@ -213,7 +250,13 @@ export class MobileEngine {
       },
       BACKGROUND_CONTEXT,
     );
-    const engine = new MobileEngine(harness, database, settings, files);
+    const engine = new MobileEngine(
+      harness,
+      database,
+      settings,
+      files,
+      capabilities,
+    );
     try {
       if (files)
         for (const item of await engine.listConversations())
@@ -514,7 +557,11 @@ export class MobileEngine {
       try {
         await this.harness.close(this.context);
       } finally {
-        await this.files?.close(this.context);
+        try {
+          await this.files?.close(this.context);
+        } finally {
+          await this.capabilities?.close();
+        }
       }
     }
   }

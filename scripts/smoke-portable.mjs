@@ -19,7 +19,9 @@ const realm = createContext({
   setInterval,
   clearInterval,
   queueMicrotask,
-  crypto: globalThis.crypto,
+  crypto: {
+    getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto),
+  },
   TextEncoder,
   TextDecoder,
   AbortController,
@@ -188,6 +190,83 @@ const models = api.createMobileModels(
   },
   (signal) => auth.getAccessToken(signal),
 );
+const capabilityNative = new DatabaseSync(":memory:");
+const capabilityDatabase = new api.SerialSqliteDatabase({
+  execAsync: async (sql) => {
+    capabilityNative.exec(sql);
+  },
+  runAsync: async (sql, ...p) => {
+    capabilityNative.prepare(sql).run(...p);
+  },
+  getFirstAsync: async (sql, ...p) =>
+    capabilityNative.prepare(sql).get(...p) ?? null,
+  getAllAsync: async (sql, ...p) => capabilityNative.prepare(sql).all(...p),
+  closeAsync: async () => capabilityNative.close(),
+});
+const capabilities = new api.CapabilityService({
+  openDatabase: async () => capabilityDatabase,
+  skills: async () => [
+    {
+      id: "portable",
+      name: "Portable",
+      instructions: "Test",
+      description: "",
+      source: "https://example.com/SKILL.md",
+      installedAt: 0,
+    },
+  ],
+  authorize: async () => true,
+  fetcher: async () => new Response('{"items":[{"id":1,"cost":"5.5"}]}'),
+});
+try {
+  const invoke = (name, args) =>
+    capabilities.execute(
+      name,
+      { skillId: "portable", ...args },
+      { conversationId: 1, signal: new AbortController().signal },
+    );
+  await invoke("database_schema", {
+    operationId: "schema",
+    tables: [
+      {
+        name: "players",
+        columns: [
+          { name: "id", type: "INTEGER", primaryKey: true },
+          { name: "cost", type: "REAL" },
+        ],
+      },
+    ],
+  });
+  const body = await invoke("http_request", {
+    url: "https://example.com/bootstrap",
+  });
+  const args = {
+    operationId: "import",
+    bodyRef: body.bodyRef,
+    table: "players",
+    select: ["items"],
+    columns: {
+      id: { path: ["id"], type: "number" },
+      cost: { path: ["cost"], type: "number" },
+    },
+  };
+  const receipt = await invoke("json_import", args);
+  assert.equal(receipt.rows, 1);
+  assert.equal(
+    JSON.stringify(await invoke("json_import", args)),
+    JSON.stringify(receipt),
+  );
+  assert.equal(
+    (await invoke("database_query", { table: "players" })).rows[0].cost,
+    5.5,
+  );
+  console.log(
+    "PASS: native tools HTTP reference → JSON import → SQLite query/replay without Node globals or crypto.randomUUID.",
+  );
+} finally {
+  await capabilities.close();
+}
+
 const engine = await api.MobileEngine.open(database, models, {
   provider: "openai",
   modelId: "gpt-4.1-mini",

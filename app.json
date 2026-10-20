@@ -28,7 +28,8 @@
             "usePrecompiledModules": false
           }
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "web": {
       "bundler": "metro"

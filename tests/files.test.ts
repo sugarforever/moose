@@ -120,6 +120,7 @@ it("runs genuine tools through Moose, persists files, isolates conversations and
       edits: [{ oldText: "Hello", newText: "你好" }],
     }),
     call("read", { path: "notes/test.txt" }),
+    call("workspace_list", { path: "notes" }),
     fauxAssistantMessage("Saved"),
   ]);
   let engine = await MobileEngine.open(
@@ -133,7 +134,7 @@ it("runs genuine tools through Moose, persists files, isolates conversations and
   const first = await engine.newConversation("Files");
   expect(
     (await first.agent(engine.context)).tools.map((t) => t.name).sort(),
-  ).toEqual(["edit", "read", "write"]);
+  ).toEqual(["edit", "read", "workspace_list", "write"]);
   expect(
     (
       await (
@@ -177,6 +178,9 @@ it("runs genuine tools through Moose, persists files, isolates conversations and
         .some((message) => message.role === "toolResult" && message.isError),
     ).toBe(true);
   }
+  expect(
+    JSON.stringify((await first.context(engine.context)).entries),
+  ).toContain("conversation-private");
   expect(environments).toHaveLength(3);
   await first.configure(
     {
