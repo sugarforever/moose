@@ -18,6 +18,7 @@ import {
   colors,
   s,
 } from "./kit";
+import { TermuxSettings } from "./TermuxSettings";
 import type { Moose } from "./useMoose";
 
 export function TasksScreen({ moose }: { moose: Moose }) {
@@ -241,6 +242,7 @@ export function SettingsScreen({ moose }: { moose: Moose }) {
       <View style={{ gap: 6 }}>
         <Text style={s.heading}>设置</Text>
       </View>
+      <TermuxSettings />
       {provider === "openai-codex" && <ChatGPTConnection moose={moose} />}
       <Card>
         <View style={s.row}>

@@ -28,7 +28,8 @@
             "usePrecompiledModules": false
           }
         }
-      ]
+      ],
+      "./plugins/termux-network.cjs"
     ],
     "web": {
       "bundler": "metro"

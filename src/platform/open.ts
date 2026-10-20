@@ -8,6 +8,7 @@ import {
   createMobileModels,
 } from "../generated/runtime";
 import type { ModelSettings } from "../runtime/engine";
+import { termux } from "./termux";
 import { codexAuth } from "./codex";
 
 export const defaultSettings: ModelSettings = {
@@ -39,12 +40,14 @@ export async function openMobile() {
     nativeFetch as typeof fetch,
     (signal) => codexAuth.getAccessToken(signal),
   );
+  const termuxFactory = await termux.factory();
   const engine = await MobileEngine.open(
     new SerialSqliteDatabase(native),
     models,
     defaultSettings,
     Date.now,
-    (workspaceId) => createExpoWorkspace({ workspaceId }),
+    termuxFactory ?? ((workspaceId) => createExpoWorkspace({ workspaceId })),
+    { shell: !!termuxFactory },
   );
   const settings = await engine.read<ModelSettings>(
     "settings",

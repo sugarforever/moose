@@ -8,7 +8,8 @@ Moose v0.1.0 是面向 iOS 和 Android 的本地优先 AI 对话应用。Expo / 
 - 检查点与历史分支，通过对话右上角的更多菜单保存检查点，在任务页恢复。
 - 有限次数的重复任务、进度保存、停止和重启恢复。
 - 通过 HTTPS URL 安装 Skill，为每个对话独立启用。
-- 使用 `pi-durable-expo-env` 提供 read、write、edit 文件工具，每个对话拥有独立的设备私有工作区。
+- 默认使用 `pi-durable-expo-env` 提供 read、write、edit 文件工具，每个对话拥有独立的设备私有工作区。
+- Android 可选实验性 Termux 文件与 Shell 环境，需要手动启动本机服务；原生 Termux 验收尚未完成，见 [设置和限制](docs/termux.md)。
 - OpenAI / Anthropic API Key，以及实验性的 ChatGPT / Codex 订阅登录。
 - 紧凑对话布局、系统消息操作菜单和键盘避让。
 
@@ -84,7 +85,7 @@ Skill 支持 SKILL.md 直链、GitHub 文件、目录和仓库根目录 URL。�
 
 检查点保存对话历史，不保存文件快照。恢复检查点会创建新对话和空工作区，不复制原对话文件，也不回滚磁盘内容。原对话的文件保持不变。
 
-单个文件限制为 8 MiB。只提供 read、write、edit，不支持 Shell、脚本执行或搜索。读取的文件内容会作为工具结果进入模型上下文，可能发送给当前模型服务商。
+单个文件限制为 8 MiB。默认环境只提供 read、write、edit，不支持 Shell、脚本执行或搜索。Android 可在设置中明确选择 Termux 环境，切换后重启应用，文件不会迁移。读取的文件内容会作为工具结果进入模型上下文，可能发送给当前模型服务商。
 
 文件环境使用 npm 发布的 `pi-durable-expo-env@0.1.0`，版本与完整性由锁文件固定，不依赖同级目录的源码或本地 tarball。更新步骤、受控原生测试入口和验证记录见 [文件环境集成说明](docs/mobile-files.md)。
 

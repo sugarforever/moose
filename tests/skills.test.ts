@@ -61,3 +61,12 @@ it("preserves a legacy sentence quoted inside a Skill when upgrading the app pre
   const current = selectedSkillPrompt([], []) + `\n<skill>${legacy}</skill>`;
   expect(upgradeSkillPrompt(current)).toBe(current);
 });
+
+it("upgrades the prior file-only preamble without changing appended skill instructions", () => {
+  const old =
+    "You are Moose, a helpful mobile assistant. Reply in the user’s language. Skills provide instructions only. Use only tools exposed in this conversation. Shell, script execution and external Skill resource loading are unavailable. Never claim to have executed unavailable tools.";
+  const skill = "\n<skill>Shell, script execution is quoted here.</skill>";
+  expect(upgradeSkillPrompt(old + skill)).toBe(
+    selectedSkillPrompt([], []) + skill,
+  );
+});

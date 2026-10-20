@@ -335,3 +335,70 @@ it("rejects a checkpoint while a text-bearing tool call is still running", async
     (await engine.checkpoint(chat.id, "Completed")).entryId,
   ).toBeGreaterThan(0);
 });
+
+it("advertises bash only for an explicitly selected shell environment", async () => {
+  const { root, factory, models, settings } = await fixture();
+  const engine = await MobileEngine.open(
+    database(join(root, "shell.sqlite")),
+    models,
+    settings,
+    Date.now,
+    factory,
+    { shell: true },
+  );
+  cleanup.push(() => engine.close());
+  const chat = await engine.newConversation("Termux");
+  expect(
+    (await chat.agent(engine.context)).tools.map((t) => t.name).sort(),
+  ).toEqual(["bash", "edit", "read", "write"]);
+  expect((await chat.agent(engine.context)).instructions).not.toContain(
+    "Shell, script execution",
+  );
+});
+
+it("uses real Termux bash and file tools together through a controlled model", async () => {
+  const { startService } = await import("../components/termux-service/server");
+  const { TermuxEnvironment, signedTransport } =
+    await import("../src/termux/environment");
+  const { ed25519 } = await import("@noble/curves/ed25519.js");
+  const { root, models, settings, faux } = await fixture();
+  const seed = new Uint8Array(32).fill(4);
+  const service = await startService({
+    root: join(root, "termux"),
+    publicKey: ed25519.getPublicKey(seed),
+    port: 0,
+  });
+  cleanup.push(() => service.close());
+  const rpc = signedTransport(service.url, seed, fetch, () =>
+    crypto.randomUUID(),
+  );
+  faux.setResponses([
+    call("write", { path: "shared", content: "hello" }),
+    call("bash", { command: "cat shared > result; printf shell" }),
+    call("read", { path: "result" }),
+    fauxAssistantMessage("Done"),
+  ]);
+  const engine = await MobileEngine.open(
+    database(join(root, "termux.sqlite")),
+    models,
+    settings,
+    Date.now,
+    (id) => new TermuxEnvironment(id, rpc),
+    { shell: true },
+  );
+  cleanup.push(() => engine.close());
+  const chat = await engine.newConversation();
+  expect(
+    (
+      await (
+        await engine.submit(chat.id, "Use files and shell", "termux-e2e")
+      ).wait(engine.context)
+    ).status,
+  ).toBe("done");
+  expect(
+    await fs.readFile(
+      join(root, "termux", "workspaces", `moose-chat-${chat.id}`, "result"),
+      "utf8",
+    ),
+  ).toBe("hello");
+});

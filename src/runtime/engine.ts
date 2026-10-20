@@ -1,3 +1,5 @@
+import { executionRequestKey } from "./execution-request";
+import { withContextValue } from "@earendil-works/chord/context";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Models } from "@earendil-works/pi-ai/models";
 import {
@@ -23,6 +25,7 @@ import {
   type Skill,
 } from "../skills/skills";
 import {
+  createBashTool,
   createReadTool,
   createWriteTool,
   createEditTool,
@@ -177,6 +180,7 @@ export class MobileEngine {
     settings: ModelSettings,
     now = Date.now,
     workspaceFactory?: MobileWorkspaceFactory,
+    capabilities: { shell?: boolean } = {},
   ) {
     await database.exec(
       "CREATE TABLE IF NOT EXISTS moose_data (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
@@ -192,12 +196,29 @@ export class MobileEngine {
       registry.install(
         defineExtension({
           name: "moose.files",
-          tools: [createReadTool(), createWriteTool(), createEditTool()],
+          tools: [
+            createReadTool(),
+            createWriteTool(),
+            createEditTool(),
+            ...(capabilities.shell ? [createBashTool()] : []),
+          ].map((tool) => ({
+            ...tool,
+            execute: (args, api, context) =>
+              tool.execute(
+                args as never,
+                api,
+                withContextValue(
+                  executionRequestKey,
+                  { taskId: String(api.taskId), sequence: 0 },
+                  context,
+                ),
+              ),
+          })),
           sections: [
-            section(
-              "mobile-workspace",
-              () =>
-                "Use read, write and edit for files inside /workspace in this conversation’s app-private device workspace. Relative paths start at /workspace. Other conversations and new checkpoint branches have separate workspaces. File contents are not part of a conversation checkpoint. Shell, script execution, web search and external document access are unavailable.",
+            section("mobile-workspace", () =>
+              capabilities.shell
+                ? "Use read, write, edit and bash in this conversation’s Termux workspace. All tools share the same directory. Use relative paths with all tools; /workspace is a file RPC alias, not a physical shell path. Run pwd in bash to discover its physical directory. Native shell commands have Termux app permissions, not container isolation. Other conversations start in separate directories. Checkpoints do not snapshot files. Never repeat a command automatically after an unknown outcome."
+                : "Use read, write and edit for files inside /workspace in this conversation’s app-private device workspace. Relative paths start at /workspace. Other conversations and new checkpoint branches have separate workspaces. File contents are not part of a conversation checkpoint. Shell, script execution, web search and external document access are unavailable.",
             ),
           ],
         }),
