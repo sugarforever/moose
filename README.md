@@ -1,6 +1,6 @@
 # Moose
 
-Moose v0.1.0 是面向 iOS 和 Android 的本地优先 AI 对话应用。Expo / React Native 提供界面，Pi Durable 在手机的 Hermes 运行时中执行，SQLite 保存对话与任务。模型请求直接发给服务商，无需 Moose 后端。
+Moose v0.2.0 是面向 iOS 和 Android 的本地优先 AI 对话应用。Expo / React Native 提供界面，Pi Durable 在手机的 Hermes 运行时中执行，SQLite 保存对话与任务。模型请求直接发给服务商，无需 Moose 后端。
 
 ## 功能
 
@@ -15,7 +15,7 @@ Moose v0.1.0 是面向 iOS 和 Android 的本地优先 AI 对话应用。Expo / 
 
 ## 本地开发
 
-需要 Node.js 22.19 或更高版本。Node 只用于开发、构建与测试，手机不运行 Node.js。
+需要 Node.js 22.19 或更高版本。Moose 应用本身不运行 Node.js；开发、构建与测试需要 Node，可选 Termux 服务也需要在 Termux 中安装 Node。
 
 ```sh
 npm ci
@@ -88,6 +88,56 @@ Skill 支持 SKILL.md 直链、GitHub 文件、目录和仓库根目录 URL。�
 单个文件限制为 8 MiB。默认环境只提供 read、write、edit，不支持 Shell、脚本执行或搜索。Android 可在设置中明确选择 Termux 环境，切换后重启应用，文件不会迁移。读取的文件内容会作为工具结果进入模型上下文，可能发送给当前模型服务商。
 
 文件环境使用 npm 发布的 `pi-durable-expo-env@0.1.0`，版本与完整性由锁文件固定，不依赖同级目录的源码或本地 tarball。更新步骤、受控原生测试入口和验证记录见 [文件环境集成说明](docs/mobile-files.md)。
+
+## Android Termux 安装与配置（实验性）
+
+Termux 是可选执行环境。默认的本地文件环境不需要安装它。Termux 模式可让模型使用 read、write、edit 和 bash，文件操作与 Shell 使用同一个对话工作目录。
+
+### 安装 Moose 和 Termux 服务
+
+1. 在手机安装 Termux，以及包含 Termux 功能的 Moose Android APK。发布后可从 [GitHub Releases](https://github.com/sugarforever/moose/releases) 下载对应版本的 APK 和 `service.mjs`。将 `service.mjs` 保存到手机的 Downloads 文件夹。
+2. 打开 Termux，逐条执行以下命令，安装 Node 并允许访问下载文件。系统询问存储权限时选择允许。
+
+```sh
+pkg update
+pkg install nodejs-lts
+node --version
+termux-setup-storage
+```
+
+Node 版本需要至少 `22.19`。将服务文件复制到 Termux 私有目录：
+
+```sh
+cp ~/storage/downloads/service.mjs ~/moose-service.mjs
+```
+
+若尚无包含该附件的发布版本，可在开发电脑的此仓库中执行 `npm ci` 和 `npm run bundle:termux`，再把生成的 `dist/termux/service.mjs` 传到手机 Downloads 文件夹。手机不需要安装本仓库的 npm 依赖。
+
+### 配对并连接
+
+1. 打开 Moose 的“设置”，找到“执行环境”，复制“Termux 服务配对公钥”。如果没有这个设置项，说明当前 APK 尚未包含此功能。
+2. 回到 Termux，执行下面的命令，将 `你的配对公钥` 替换为刚复制的完整公钥。
+
+```sh
+node ~/moose-service.mjs 你的配对公钥
+```
+
+3. 看到 `listening at http://127.0.0.1:18765/` 后，保持该 Termux 会话运行。
+4. 回到 Moose，点击“连接 Termux”。显示保存成功后，完全关闭并重新打开 Moose，使执行环境切换生效。
+5. 新建对话，发送：“在当前工作区创建 hello.txt，写入 hello，然后用 bash 读取它。”这会使用你已配置的模型连接，可能产生相应的模型费用。
+
+以后重启手机或 Termux 服务退出时，需要重新运行服务启动命令。当前不能全部在 Moose 内自动完成，也不需要启用 Termux 的 `allow-external-apps` 或 RUN_COMMAND 权限。Android 可能暂停或终止后台进程，不能保证锁屏后持续执行。
+
+### 文件、安全与故障排查
+
+- 各对话从不同目录开始；恢复检查点会创建空工作区。切换回“本地文件”后也需要重启 Moose，文件不会在两种环境之间自动迁移。
+- 对文件工具和 bash 都优先使用相对路径。`/workspace` 是文件接口别名，不是 Shell 中的真实绝对路径；可用 `pwd` 查看实际目录。
+- Termux 服务仅监听手机本机 `127.0.0.1:18765`，不要开放到局域网或公网。Moose 的模型凭据和私密签名种子不会交给 Termux；服务只接收配对公钥。
+- Shell 拥有 Termux 应用的权限，能访问其他 Termux 文件。对话目录和 PRoot 都不是安全沙箱，请勿在含有其他私密数据的 Termux 环境中运行不可信命令。
+- 连接失败时，先检查 Termux 是否仍显示服务运行、端口是否被占用、公钥是否完整，以及是否安装了新版 APK。配对成功后无需在 Termux 中配置模型 API Key。
+- 如果提示上次命令结果未确认，不要直接重复有外部副作用的命令。先检查文件及外部操作结果，再按 [恢复说明](docs/termux.md#recovery-and-limits) 处理。
+
+此功能已通过电脑上的真实文件、进程、认证传输和受控模型测试，但 Android 原生安装、真实 Termux 执行及取消仍待实机验收。接口限制、恢复机制和验证记录见 [Termux 说明](docs/termux.md)。
 
 ## 验证
 
