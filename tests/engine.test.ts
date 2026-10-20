@@ -195,3 +195,27 @@ it("serializes rapid skill toggles and removes installed instructions from every
     "Use alpha instructions",
   );
 });
+
+it("blocks environment switching until active repeat jobs are stopped", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "moose-switch-idle-"));
+  cleanup.push(() => rm(dir, { recursive: true, force: true }));
+  const { faux, models, settings } = fixture();
+  faux.setResponses([fauxAssistantMessage("done")]);
+  const engine = await MobileEngine.open(
+    database(join(dir, "pi.sqlite")),
+    models,
+    settings,
+  );
+  cleanup.push(() => engine.close());
+  await expect(engine.assertEnvironmentSwitchIdle()).resolves.toBeUndefined();
+  const chat = await engine.newConversation();
+  const task = await engine.repeat(chat.id, "repeat", 60000, 2);
+  await expect(engine.assertEnvironmentSwitchIdle()).rejects.toThrow(
+    "重复任务",
+  );
+  await engine.stopTask(task);
+  await until(
+    async () => (await engine.repeatStatus(task)).status === "terminal",
+  );
+  await expect(engine.assertEnvironmentSwitchIdle()).resolves.toBeUndefined();
+});

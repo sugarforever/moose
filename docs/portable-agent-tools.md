@@ -2,6 +2,10 @@
 
 Implements GitHub issue #3. Agent tools are registered in a Pi Durable extension; portable services receive native fetch, separate SQLite databases, workspace and user-approval adapters. No shell, eval, or Node adapter enters the mobile bundle.
 
+## Execution profiles
+
+The local profile retains this native capability suite on iOS and Android. The optional Android Termux profile keeps only capabilities discovery, skill_resource_read and artifact_create alongside its file/bash tools. Native HTTP/database/JSON import/document execution tools and workspace_list are not registered in Termux mode. Existing native stores and grants are retained, and become accessible again after switching back to local mode. Native resource grants do not constrain shell network access. Codemode/eval and expanded native execution DSLs are not part of this integration. See [Termux ownership](termux.md#execution-ownership-after-integration-with-native-tools).
+
 ## Trust and persistence
 
 Tools are registered with the Moose agent independently of Skills. Omit `skillId` to use persistent conversation-private storage and conversation-scoped grants; no Skill installation or selection is required. Supplying `skillId` explicitly selects that installed, enabled Skill's shared namespace, validated on every invocation. Only `skill_resource_read` always requires `skillId`. Skill instructions never grant access.

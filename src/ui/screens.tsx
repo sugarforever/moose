@@ -18,6 +18,7 @@ import {
   colors,
   s,
 } from "./kit";
+import { TermuxSettings } from "./TermuxSettings";
 import { permissionLabel } from "../platform/capabilities";
 import type { Moose } from "./useMoose";
 
@@ -245,8 +246,14 @@ export function SettingsScreen({ moose }: { moose: Moose }) {
       <View style={{ gap: 6 }}>
         <Text style={s.heading}>设置</Text>
       </View>
+      <TermuxSettings moose={moose} />
       <Card>
-        <Text style={s.subheading}>当前对话权限</Text>
+        <Text style={s.subheading}>当前对话原生工具授权</Text>
+        {moose.runtime?.executionEnvironment === "termux" && (
+          <Caption>
+            这些授权仅约束原生工具，不限制 Termux 命令的网络和文件访问。
+          </Caption>
+        )}
         {moose.grants.length === 0 ? (
           <Caption>暂无授权</Caption>
         ) : (

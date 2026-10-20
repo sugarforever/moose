@@ -1,6 +1,6 @@
 {
   "name": "moose-mobile",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "main": "index.ts",
   "scripts": {
@@ -12,13 +12,18 @@
     "bundle:runtime": "node scripts/bundle-runtime.mjs",
     "export": "npm run bundle:runtime && expo export --platform ios --platform android",
     "smoke:portable": "npm run bundle:runtime && node scripts/smoke-portable.mjs",
-    "verify": "npm run bundle:runtime && npm test && npm run typecheck && npm run smoke:portable && npm run export"
+    "verify": "npm run bundle:runtime && npm test && npm run test:termux-bootstrap && npm run typecheck && npm run smoke:portable && npm run export",
+    "bundle:termux": "node scripts/bundle-termux.mjs",
+    "smoke:termux": "npm run bundle:termux && node scripts/smoke-termux.mjs",
+    "test:termux-bootstrap": "node --test vendor/moose-termux-native/tests/*.node.mjs"
   },
   "dependencies": {
     "@earendil-works/chord": "1.3.0",
     "@earendil-works/pi-ai": "1.3.0",
     "@earendil-works/pi-durable": "1.3.0",
     "@expo/vector-icons": "^15.0.2",
+    "@noble/curves": "2.0.1",
+    "@noble/hashes": "2.0.1",
     "expo": "58.0.16",
     "expo-build-properties": "~58.0.11",
     "expo-crypto": "~58.0.7",
@@ -30,6 +35,7 @@
     "expo-sqlite": "~58.0.13",
     "expo-status-bar": "~58.0.3",
     "expo-web-browser": "~58.0.6",
+    "moose-termux-native": "file:vendor/moose-termux-native",
     "pi-durable-expo-env": "0.1.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",

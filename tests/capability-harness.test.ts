@@ -149,3 +149,138 @@ it("offers and executes HTTP fetching for an ordinary conversation with no Skill
   expect(JSON.stringify(results)).toContain("Public article");
   expect(grants).toEqual(["|http:https://example.com"]);
 });
+
+it("Termux hides duplicate executors while preserving report creation and Skill resource tools", async () => {
+  const faux = fauxProvider();
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const engine = await MobileEngine.open(
+    db(),
+    models,
+    { provider: "faux", modelId: "faux-1" },
+    Date.now,
+    undefined,
+    {
+      openDatabase: async () => db(),
+      fetcher: async () => new Response("{}"),
+      authorize: async () => true,
+    },
+    { shell: true },
+  );
+  opened.push(engine);
+  const chat = await engine.newConversation();
+  const names = (await chat.agent(engine.context)).tools
+    .map((t) => t.name)
+    .sort();
+  expect(names).toEqual([
+    "artifact_create",
+    "capabilities",
+    "skill_resource_read",
+  ]);
+  faux.setResponses([
+    fauxAssistantMessage(fauxToolCall("capabilities", {}), {
+      stopReason: "toolUse",
+    }),
+    fauxAssistantMessage(
+      fauxToolCall("artifact_create", {
+        operationId: "report",
+        title: "Termux report",
+        text: "<h1>Report</h1>",
+        mime: "text/html",
+      }),
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage("Done"),
+  ]);
+  expect(
+    (
+      await (
+        await engine.submit(chat.id, "Publish this report", "termux-report")
+      ).wait(engine.context)
+    ).status,
+  ).toBe("done");
+  expect(await engine.capabilities!.artifacts(chat.id)).toMatchObject([
+    { title: "Termux report" },
+  ]);
+  const context = JSON.stringify((await chat.context(engine.context)).entries);
+  expect(context).not.toContain("No shell or eval");
+  expect(context).not.toContain("database_query");
+});
+
+it("preserves native data and restores tools after switching local to Termux and back", async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { createHash } = await import("node:crypto");
+  const { sqlite } = await import("./helpers/capability-db");
+  const root = await mkdtemp(join(tmpdir(), "moose-switch-"));
+  const faux = fauxProvider();
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const open = (shell: boolean) =>
+    MobileEngine.open(
+      sqlite(join(root, "pi.sqlite")),
+      models,
+      { provider: "faux", modelId: "faux-1" },
+      Date.now,
+      undefined,
+      {
+        openDatabase: async (key) =>
+          sqlite(
+            join(
+              root,
+              createHash("sha256").update(key).digest("hex") + ".sqlite",
+            ),
+          ),
+        fetcher: async () => new Response("{}"),
+        authorize: async () => true,
+      },
+      { shell },
+    );
+  let engine: MobileEngine | undefined;
+  try {
+    engine = await open(false);
+    const chat = await engine.newConversation();
+    const operation = {
+      conversationId: Number(chat.id),
+      operationId: "save",
+      signal: new AbortController().signal,
+    };
+    await engine.capabilities!.execute(
+      "document_write",
+      { name: "legacy", text: "keep me", operationId: "save" },
+      operation,
+    );
+    await engine.close();
+    engine = await open(true);
+    expect(
+      (
+        await (await engine.conversation(chat.id)).agent(engine.context)
+      ).tools.map((t) => t.name),
+    ).not.toContain("document_write");
+    expect(
+      await engine.capabilities!.execute(
+        "document_read",
+        { name: "legacy" },
+        operation,
+      ),
+    ).toMatchObject({ text: "keep me" });
+    await engine.close();
+    engine = await open(false);
+    expect(
+      (
+        await (await engine.conversation(chat.id)).agent(engine.context)
+      ).tools.map((t) => t.name),
+    ).toContain("document_write");
+    expect(
+      await engine.capabilities!.execute(
+        "document_read",
+        { name: "legacy" },
+        operation,
+      ),
+    ).toMatchObject({ text: "keep me" });
+  } finally {
+    await engine?.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
