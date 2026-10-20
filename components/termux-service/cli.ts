@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { readdir, readFile, rename, mkdir } from "node:fs/promises";
@@ -33,7 +34,10 @@ if (action === "acknowledge-interrupted") {
     "Interrupted outcomes acknowledged. Inspect workspace side effects before issuing commands again.",
   );
 }
-const service = await startService({ root, publicKey: unhex(key) });
+const buildHash = createHash("sha256")
+  .update(await readFile(new URL(import.meta.url)))
+  .digest("hex");
+const service = await startService({ root, publicKey: unhex(key), buildHash });
 console.log(
   `Moose Termux service listening at ${service.url}. Shell has Termux UID permissions.`,
 );

@@ -8,6 +8,9 @@ import {
 import { AppState } from "react-native";
 import { randomUUID } from "expo-crypto";
 import { fetch as nativeFetch } from "expo/fetch";
+import { termux } from "../platform/termux";
+import { replaceRuntime } from "../termux/switch";
+import type { SetupPhase } from "../termux/setup";
 import { openMobile, credentials, defaultSettings } from "../platform/open";
 import { loadSkill, chatMessages } from "../generated/runtime";
 import type {
@@ -49,6 +52,8 @@ export function useMoose() {
   const [artifacts, setArtifacts] = useState<Omit<Artifact, "text">[]>([]);
   const [grants, setGrants] = useState<Grant[]>([]);
   const [runtime, setRuntime] = useState<Runtime>();
+  const runtimeOwner = useRef<Runtime | undefined>(undefined);
+  const appMounted = useRef(true);
   const [settings, setSettings] = useState<ModelSettings>(defaultSettings);
   const [conversationId, setConversationId] = useState<number>();
   const [conversations, setConversations] = useState<
@@ -99,6 +104,7 @@ export function useMoose() {
   }, []);
   useEffect(() => {
     let disposed = false;
+    appMounted.current = true;
     let opened: MobileEngine | undefined;
     void run(async () => {
       const next = await openMobile();
@@ -107,6 +113,7 @@ export function useMoose() {
         await next.engine.close();
         return;
       }
+      runtimeOwner.current = next;
       setRuntime(next);
       setSettings(next.settings);
       const key = await credentials.has(next.settings.provider);
@@ -126,7 +133,11 @@ export function useMoose() {
     });
     return () => {
       disposed = true;
-      if (opened) void opened.close().catch(() => {});
+      appMounted.current = false;
+      const current = runtimeOwner.current;
+      runtimeOwner.current = undefined;
+      if (current) void current.engine.close().catch(() => {});
+      else if (opened) void opened.close().catch(() => {});
       loginController.current?.abort();
     };
   }, [refresh, run]);
@@ -166,7 +177,7 @@ export function useMoose() {
     });
     return () => {
       disposed = true;
-      if (stop) void stop();
+      if (stop) void stop().catch(() => {});
     };
   }, [runtime, conversationId, run]);
   useEffect(() => {
@@ -276,6 +287,101 @@ export function useMoose() {
         }
       }),
     runtime,
+    changeExecutionEnvironment: async (
+      enabled: boolean,
+      signal: AbortSignal,
+      onPhase: (phase: SetupPhase) => void,
+    ) => {
+      const current = runtimeOwner.current;
+      if (!current || inFlight.current) throw new Error("请等待当前操作完成");
+      const previous = current.executionEnvironment === "termux";
+      inFlight.current = true;
+      setWorking(true);
+      setError("");
+      try {
+        const changed = await replaceRuntime({
+          current,
+          assertIdle: async () => {
+            signal.throwIfAborted();
+            await current.engine.assertEnvironmentSwitchIdle();
+            signal.throwIfAborted();
+          },
+          select: () => termux.enable(enabled, signal, onPhase),
+          close: async (old) => {
+            setRuntime(undefined);
+            runtimeOwner.current = undefined;
+            await old.engine.close();
+          },
+          open: async () => {
+            signal.throwIfAborted();
+            const next = await openMobile();
+            if (signal.aborted) {
+              await next.engine.close();
+              signal.throwIfAborted();
+            }
+            return next;
+          },
+          restore: () => termux.select(previous),
+          reopen: () => openMobile(),
+        });
+        if (!appMounted.current) {
+          await changed.runtime.engine.close();
+          return;
+        }
+        runtimeOwner.current = changed.runtime;
+        setRuntime(changed.runtime);
+        setSettings(changed.runtime.settings);
+        await refresh(changed.runtime.engine);
+        if (await credentials.has(changed.runtime.settings.provider))
+          changed.runtime.engine.resume();
+        if (changed.error) throw changed.error;
+      } catch (error) {
+        if (appMounted.current)
+          setError(
+            error instanceof Error
+              ? error.message
+              : "切换失败，请重试打开运行时",
+          );
+        throw error;
+      } finally {
+        inFlight.current = false;
+        if (appMounted.current) setWorking(false);
+      }
+    },
+    retryRuntime: async () => {
+      if (inFlight.current || runtimeOwner.current) return;
+      inFlight.current = true;
+      setWorking(true);
+      setError("");
+      try {
+        const next = await openMobile();
+        if (!appMounted.current) {
+          await next.engine.close();
+          return;
+        }
+        runtimeOwner.current = next;
+        setRuntime(next);
+        setSettings(next.settings);
+        await refresh(next.engine);
+        const chats = await next.engine.listConversations();
+        setConversationId(
+          chats.find((chat) => chat.id === conversationId)?.id ??
+            chats[0]?.id ??
+            Number((await next.engine.newConversation()).id),
+        );
+        const ready = await credentials.has(next.settings.provider);
+        setHasCredentials(ready);
+        if (ready) next.engine.resume();
+      } catch (error) {
+        if (appMounted.current)
+          setError(
+            error instanceof Error ? error.message : "无法打开运行时，请重试",
+          );
+      } finally {
+        inFlight.current = false;
+        if (appMounted.current) setWorking(false);
+      }
+    },
     settings,
     conversationId,
     conversations,

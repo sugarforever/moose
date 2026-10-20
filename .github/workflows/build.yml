@@ -49,6 +49,7 @@ jobs:
       - name: Run tests and type checks
         run: |
           npm test
+          npm run test:termux-bootstrap
           npm run typecheck
           npm run smoke:portable
 

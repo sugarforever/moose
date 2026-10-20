@@ -38,6 +38,7 @@ export async function startService(options: {
   root: string;
   publicKey: Uint8Array;
   port?: number;
+  buildHash?: string;
 }) {
   await mkdir(resolve(options.root), { recursive: true, mode: 0o700 });
   const root = await realpath(resolve(options.root));
@@ -162,6 +163,11 @@ export async function startService(options: {
   }
   async function dispatch(message: any) {
     const { workspace, op } = message;
+    if (op === "serviceInfo")
+      return {
+        ok: true,
+        value: { protocol: 1, buildHash: options.buildHash ?? "development" },
+      };
     const { env, base, cwd } = await environment(workspace, message.cwd);
     const args = decode(message.args) as any[];
     if (op === "connect") return { ok: true, value: base };
@@ -445,6 +451,7 @@ export async function startService(options: {
       }
       const cacheable = ![
         "connect",
+        "serviceInfo",
         "poll",
         "fileInfo",
         "exists",

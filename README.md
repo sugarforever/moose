@@ -9,7 +9,7 @@ Moose v0.2.0 是面向 iOS 和 Android 的本地优先 AI 对话应用。Expo / 
 - 有限次数的重复任务、进度保存、停止和重启恢复。
 - 通过 HTTPS URL 安装 Skill，为每个对话独立启用。
 - 默认使用 `pi-durable-expo-env` 提供 read、write、edit、workspace_list 文件工具，每个对话拥有独立的设备私有工作区。
-- Android 可选实验性 Termux 文件与 Shell 环境，需要手动启动本机服务；原生 Termux 验收尚未完成，见 [设置和限制](docs/termux.md)。
+- Android 可选实验性 Termux 文件与 Shell 环境，提供应用内自动配置与连接；原生 Termux 验收尚未完成，见 [设置和限制](docs/termux.md)。
 - OpenAI / Anthropic API Key，以及实验性的 ChatGPT / Codex 订阅登录。
 - 紧凑对话布局、系统消息操作菜单和键盘避让。
 
@@ -85,60 +85,35 @@ Skill 支持 SKILL.md 直链、GitHub 文件、目录和仓库根目录 URL。�
 
 检查点保存对话历史，不保存文件快照。恢复检查点会创建新对话和空工作区，不复制原对话文件，也不回滚磁盘内容。原对话的文件保持不变。
 
-单个文件限制为 8 MiB。默认环境只提供 read、write、edit，不支持 Shell、脚本执行或搜索。Android 可在设置中明确选择 Termux 环境，切换后重启应用，文件不会迁移。读取的文件内容会作为工具结果进入模型上下文，可能发送给当前模型服务商。
+单个文件限制为 8 MiB。默认环境只提供 read、write、edit，不支持 Shell、脚本执行或搜索。Android 可在设置中明确选择 Termux 环境，切换无需重启应用，文件不会迁移。读取的文件内容会作为工具结果进入模型上下文，可能发送给当前模型服务商。
 
 文件环境使用 npm 发布的 `pi-durable-expo-env@0.1.0`，版本与完整性由锁文件固定，不依赖同级目录的源码或本地 tarball。更新步骤、受控原生测试入口和验证记录见 [文件环境集成说明](docs/mobile-files.md)。
 
 ## Android Termux 安装与配置（实验性）
 
-Termux 是可选执行环境。默认的本地文件环境不需要安装它。Termux 模式可让模型使用 read、write、edit 和 bash，文件操作与 Shell 使用同一个对话工作目录。
+Moose 内的“设置并连接 Termux”会检查并安装 Node 和锁工具、部署 APK 内置的服务文件、自动配对并连接。不需要下载或搬运 `service.mjs`、复制公钥、手动输入服务启动命令，也不需要为了切换环境重启 Moose。
 
-### 安装 Moose 和 Termux 服务
+首次使用仍需你完成以下操作：
 
-1. 在手机安装 Termux，以及包含 Termux 功能的 Moose Android APK。发布后可从 [GitHub Releases](https://github.com/sugarforever/moose/releases) 下载对应版本的 APK 和 `service.mjs`。将 `service.mjs` 保存到手机的 Downloads 文件夹。
-2. 打开 Termux，逐条执行以下命令，安装 Node 并允许访问下载文件。系统询问存储权限时选择允许。
-
-```sh
-pkg update
-pkg install nodejs-lts
-node --version
-termux-setup-storage
-```
-
-Node 版本需要至少 `22.19`。将服务文件复制到 Termux 私有目录：
+1. 安装包含本次原生模块的新版 Moose APK。旧版 APK 或 Expo Go 不包含自动配置模块；开发者需重新编译原生客户端。
+2. 安装并打开一次 Termux，等待初始化完成，看到命令提示符。
+3. 打开 Moose →“设置”→“执行环境”，点击“授权运行命令”，允许在 Termux 中运行命令。如果系统没有弹窗或你之前拒绝过，点击“打开系统设置”，在 Moose 的应用权限／其他权限中允许此项。
+4. 在同一页长按复制一次性配置命令，点击“打开 Termux”，粘贴并执行，再返回 Moose。完整命令如下：
 
 ```sh
-cp ~/storage/downloads/service.mjs ~/moose-service.mjs
+mkdir -p ~/.termux && printf '\nallow-external-apps = true\n' >> ~/.termux/termux.properties && termux-reload-settings
 ```
 
-若尚无包含该附件的发布版本，可在开发电脑的此仓库中执行 `npm ci` 和 `npm run bundle:termux`，再把生成的 `dist/termux/service.mjs` 传到手机 Downloads 文件夹。手机不需要安装本仓库的 npm 依赖。
+5. 点击“设置并连接 Termux”。保持 Moose 在前台并联网，等待检查、安装、连接完成。首次需要下载 Termux 软件包，可能耗时数分钟。成功后显示“已连接 Termux。”，当前环境变为 Termux，无需重启应用。
+6. 新建对话，发送：“在当前工作区创建 hello.txt，写入 hello，然后用 bash 读取它。”这会使用你已配置的模型连接，可能产生模型费用。模型凭据只在 Moose 中配置，不要填入 Termux。
 
-### 配对并连接
+每次手机重启或 Termux 被系统结束后，可在 Moose 设置中点击“检查或修复连接”。切回本地环境使用“使用本地文件”。有运行中的回答、待提交请求或未停止的重复任务时，需先处理这些任务，再切换。切换不迁移文件、不删除原生数据库或历史报告。
 
-1. 打开 Moose 的“设置”，找到“执行环境”，复制“Termux 服务配对公钥”。如果没有这个设置项，说明当前 APK 尚未包含此功能。
-2. 回到 Termux，执行下面的命令，将 `你的配对公钥` 替换为刚复制的完整公钥。
+服务仅监听手机本机 `127.0.0.1:18765`。临时安装端口也仅监听 loopback，传输的是 APK 内置代码并校验 SHA-256，不需要共享存储权限。Moose 的私密签名种子和模型凭据不会传给 Termux。Android 可能暂停或终止后台进程，不能保证锁屏后持续执行。
 
-```sh
-node ~/moose-service.mjs 你的配对公钥
-```
+Termux Shell 拥有该应用的文件和网络权限，能访问其他 Termux 文件；对话目录和 PRoot 都不是安全沙箱。原生工具的授权不限制 bash 的网络或文件访问。取消设置会停止等待和临时传输，但不会回滚已安装的软件包，已下载完成的安装进程也可能继续启动服务。
 
-3. 看到 `listening at http://127.0.0.1:18765/` 后，保持该 Termux 会话运行。
-4. 回到 Moose，点击“连接 Termux”。显示保存成功后，完全关闭并重新打开 Moose，使执行环境切换生效。
-5. 新建对话，发送：“在当前工作区创建 hello.txt，写入 hello，然后用 bash 读取它。”这会使用你已配置的模型连接，可能产生相应的模型费用。
-
-以后重启手机或 Termux 服务退出时，需要重新运行服务启动命令。当前不能全部在 Moose 内自动完成，也不需要启用 Termux 的 `allow-external-apps` 或 RUN_COMMAND 权限。Android 可能暂停或终止后台进程，不能保证锁屏后持续执行。
-
-### 文件、安全与故障排查
-
-- 各对话从不同目录开始；恢复检查点会创建空工作区。切换回“本地文件”后也需要重启 Moose，文件不会在两种环境之间自动迁移。
-- 对文件工具和 bash 都优先使用相对路径。`/workspace` 是文件接口别名，不是 Shell 中的真实绝对路径；可用 `pwd` 查看实际目录。
-- 原生工具的授权只约束原生工具，不限制 bash 的网络或文件访问。
-- Termux 服务仅监听手机本机 `127.0.0.1:18765`，不要开放到局域网或公网。Moose 的模型凭据和私密签名种子不会交给 Termux；服务只接收配对公钥。
-- Shell 拥有 Termux 应用的权限，能访问其他 Termux 文件。对话目录和 PRoot 都不是安全沙箱，请勿在含有其他私密数据的 Termux 环境中运行不可信命令。
-- 连接失败时，先检查 Termux 是否仍显示服务运行、端口是否被占用、公钥是否完整，以及是否安装了新版 APK。配对成功后无需在 Termux 中配置模型 API Key。
-- 如果提示上次命令结果未确认，不要直接重复有外部副作用的命令。先检查文件及外部操作结果，再按 [恢复说明](docs/termux.md#recovery-and-limits) 处理。
-
-此功能已通过电脑上的真实文件、进程、认证传输和受控模型测试，但 Android 原生安装、真实 Termux 执行及取消仍待实机验收。接口限制、恢复机制和验证记录见 [Termux 说明](docs/termux.md)。
+完整的手机逐步操作、常见错误、已有手动服务的迁移和验收清单见 [Termux 手机配置手册](docs/termux-setup-guide.md)。技术边界与验证记录见 [Termux 说明](docs/termux.md)。Android 实机授权、部署、连接及取消仍需实际验收，测试和资源导出不等于实机验证。
 
 ## 原生工具与权限
 
@@ -167,7 +142,7 @@ npm run verify
 npx expo-doctor
 ```
 
-`verify` 包含运行包生成、99 项单元与集成测试、TypeScript 检查、无 Node 全局变量的 Pi Durable / SQLite / Codex 模拟链路，以及 Android 和 iOS 的 Hermes 发布资源导出。
+`verify` 包含运行包生成、119 项单元与集成测试、3 项真实安装脚本测试、TypeScript 检查、无 Node 全局变量的 Pi Durable / SQLite / Codex 模拟链路，以及 Android 和 iOS 的 Hermes 发布资源导出。
 
 当前验证范围：
 

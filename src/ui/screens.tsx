@@ -246,7 +246,7 @@ export function SettingsScreen({ moose }: { moose: Moose }) {
       <View style={{ gap: 6 }}>
         <Text style={s.heading}>设置</Text>
       </View>
-      <TermuxSettings />
+      <TermuxSettings moose={moose} />
       <Card>
         <Text style={s.subheading}>当前对话原生工具授权</Text>
         {moose.runtime?.executionEnvironment === "termux" && (

@@ -564,6 +564,22 @@ export class MobileEngine {
         .map((task) => this.repeatStatus(Number(task.id))),
     );
   }
+  async assertEnvironmentSwitchIdle() {
+    if ((await this.tasks()).some((task) => task.status !== "terminal"))
+      throw new Error("请先停止重复任务，再切换执行环境");
+    for (const chat of await this.listConversations()) {
+      const live = await this.harness.snapshot(
+        LiveDoc,
+        chat.id as ConversationId,
+        this.context,
+      );
+      if (live?.run) throw new Error("请等待所有对话完成，再切换执行环境");
+    }
+    const pending = await this.database.get<{ key: string }>(
+      "SELECT key FROM moose_data WHERE key LIKE 'outbox:%' AND value != 'null' LIMIT 1",
+    );
+    if (pending) throw new Error("请先处理待提交请求，再切换执行环境");
+  }
   async stopTask(id: number) {
     await this.harness.abortTask(id as TaskId, this.context);
   }

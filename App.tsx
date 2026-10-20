@@ -220,14 +220,24 @@ function MooseApp() {
             <Text selectable style={a.errorText}>
               {moose.error}
             </Text>
+            {!moose.runtime && (
+              <Button
+                secondary
+                label="重试打开"
+                busy={moose.working}
+                onPress={() => void moose.retryRuntime()}
+              />
+            )}
             <IconButton
               name="x"
               label="关闭提示"
-              onPress={() => moose.setError("")}
+              onPress={() => {
+                if (moose.runtime) moose.setError("");
+              }}
             />
           </View>
         )}
-        {!moose.runtime && !moose.error ? (
+        {!moose.runtime && !moose.error && !moose.working ? (
           <View
             style={{
               flex: 1,

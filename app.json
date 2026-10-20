@@ -31,7 +31,8 @@
         }
       ],
       "./plugins/termux-network.cjs",
-      "expo-sharing"
+      "expo-sharing",
+      "./plugins/termux-setup.cjs"
     ],
     "web": {
       "bundler": "metro"
