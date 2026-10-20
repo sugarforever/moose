@@ -59,9 +59,9 @@ export const permissionLabel = (permission: string) =>
   permission.startsWith("http:")
     ? `读取 ${permission.slice(5)}`
     : permission === "database:read"
-      ? "读取 Skill 数据库"
+      ? "读取此范围的数据库"
       : permission === "database:write"
-        ? "修改 Skill 数据库"
+        ? "修改此范围的数据库"
         : "读取和修改跨对话文档";
 export async function openCapabilityDatabase(key: string) {
   const digest = await digestStringAsync(CryptoDigestAlgorithm.SHA256, key);

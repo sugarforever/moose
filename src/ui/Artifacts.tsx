@@ -6,10 +6,14 @@ import { Button, Caption, colors, s } from "./kit";
 import type { Moose } from "./useMoose";
 import type { Artifact } from "../capabilities/service";
 import { artifactPreview } from "../capabilities/artifact-preview";
+import type { Approval } from "../platform/capabilities";
 import { permissionLabel } from "../platform/capabilities";
 
-export function CapabilityApproval({ moose }: { moose: Moose }) {
-  const approval = moose.approval;
+export function CapabilityApproval({
+  approval,
+}: {
+  approval: Approval | undefined;
+}) {
   return (
     <Modal
       visible={!!approval}
@@ -33,14 +37,14 @@ export function CapabilityApproval({ moose }: { moose: Moose }) {
             borderRadius: 16,
           }}
         >
-          <Text style={s.subheading}>允许 Skill 访问？</Text>
+          <Text style={s.subheading}>允许访问？</Text>
           <Text style={s.caption}>
             {approval?.title} · {approval?.skillName}
           </Text>
           <Text style={{ color: colors.ink }}>
             {approval ? permissionLabel(approval.permission) : ""}
           </Text>
-          <Caption>仅授权当前对话中的此 Skill，可在设置中撤销。</Caption>
+          <Caption>授权仅在当前对话的所示范围内生效，可在设置中撤销。</Caption>
           <Button label="允许" onPress={() => approval?.resolve(true)} />
           <Button
             label="拒绝"

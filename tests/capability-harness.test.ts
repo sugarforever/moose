@@ -104,3 +104,48 @@ it("advertises validated contracts and executes actual Pi tools without a shell"
     (await chat.agent(engine.context)).tools.map((t) => t.name),
   ).not.toContain("bash");
 });
+
+it("offers and executes HTTP fetching for an ordinary conversation with no Skills", async () => {
+  const faux = fauxProvider();
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const grants: string[] = [];
+  const engine = await MobileEngine.open(
+    db(),
+    models,
+    { provider: "faux", modelId: "faux-1" },
+    Date.now,
+    undefined,
+    {
+      openDatabase: async () => db(),
+      fetcher: async () => new Response("Public article"),
+      authorize: async (_chat, owner, permission) => {
+        grants.push(`${owner}|${permission}`);
+        return true;
+      },
+    },
+  );
+  opened.push(engine);
+  const chat = await engine.newConversation();
+  faux.setResponses([
+    fauxAssistantMessage(
+      fauxToolCall("http_request", { url: "https://example.com/article" }),
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage("Fetched"),
+  ]);
+  expect(
+    (
+      await (
+        await engine.submit(chat.id, "Fetch this URL", "general-http")
+      ).wait(engine.context)
+    ).status,
+  ).toBe("done");
+  const results = (await chat.context(engine.context)).entries
+    .flatMap((e) => e.model ?? [])
+    .filter((m) => m.role === "toolResult");
+  expect(results).toHaveLength(1);
+  expect(results[0].isError).toBeFalsy();
+  expect(JSON.stringify(results)).toContain("Public article");
+  expect(grants).toEqual(["|http:https://example.com"]);
+});

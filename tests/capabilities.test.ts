@@ -462,10 +462,10 @@ it("reuses a stable HTTP tool receipt after recovery without issuing another req
 it("runs the same generated-runtime fixture used on device", async () => {
   const { runCapabilitySmoke } = await import("../src/dev/capabilities-smoke");
   const f = await fixture();
-  const result = await runCapabilitySmoke(() =>
-    f.options.openDatabase("smoke"),
+  const result = await runCapabilitySmoke((key) =>
+    f.options.openDatabase(`smoke-${key}`),
   );
-  expect(result.checks).toHaveLength(8);
+  expect(result.checks).toHaveLength(10);
 });
 it("keeps artifacts discoverable when other conversations have more than 200 newer artifacts", async () => {
   const f = await fixture();
@@ -545,4 +545,122 @@ it("enumerates shared documents in bounded pages", async () => {
   expect(
     (await f.invoke("document_list", { offset: page.nextOffset })).documents,
   ).toHaveLength(1);
+});
+
+it("runs general tools without any enabled Skill using conversation-local data and grants", async () => {
+  const f = await fixture();
+  const grants: { chat: number; owner: string; permission: string }[] = [];
+  const service = new CapabilityService({
+    ...f.options,
+    authorize: async (chat, owner, permission) => {
+      grants.push({ chat, owner, permission });
+      return true;
+    },
+  });
+  cleanups.push(() => service.close());
+  const run = (name: string, args: Record<string, unknown> = {}, chat = 99) =>
+    service.execute(name, args, { conversationId: chat, signal: f.signal });
+  const body = await run("http_request", {
+    url: "https://example.com/bootstrap",
+  });
+  await run("database_schema", schema);
+  expect(
+    await run("json_import", {
+      ...mapping,
+      bodyRef: body.bodyRef,
+      operationId: "local-import",
+    }),
+  ).toMatchObject({ rows: 2 });
+  expect((await run("database_query", { table: "players" })).rows).toHaveLength(
+    2,
+  );
+  expect(
+    await run("document_write", {
+      name: "note",
+      text: "private",
+      operationId: "note",
+    }),
+  ).toMatchObject({ scope: "conversation-private" });
+  expect((await run("document_read", { name: "note" })).text).toBe("private");
+  const artifact = await run("artifact_create", {
+    title: "Report",
+    text: "local",
+    mime: "text/plain",
+    operationId: "report",
+  });
+  expect((await service.artifact(99, String(artifact.ref))).text).toBe("local");
+  expect((await service.artifacts(99)).map((a) => a.ref)).toContain(
+    artifact.ref,
+  );
+  expect(await service.artifacts(100)).toEqual([]);
+  await expect(
+    run("document_read", { name: "note" }, 100),
+  ).rejects.toMatchObject({ code: "validation" });
+  expect((await run("database_inspect", {}, 100)).tables).toEqual([]);
+  expect(
+    grants.some(
+      (g) =>
+        g.chat === 99 &&
+        g.owner === "" &&
+        g.permission === "http:https://example.com",
+    ),
+  ).toBe(true);
+  expect(grants.some((g) => g.permission === "documents:shared")).toBe(false);
+  await expect(
+    run("http_request", { skillId: "missing", url: "https://example.com" }),
+  ).rejects.toMatchObject({ code: "permission" });
+  await expect(
+    run("skill_resource_read", { path: "SKILL.md" }),
+  ).rejects.toMatchObject({ code: "validation" });
+});
+it("keeps conversation and Skill body references isolated and still enforces general HTTP denial", async () => {
+  const f = await fixture();
+  const run = (name: string, args: Record<string, unknown>, chat: number) =>
+    f.service.execute(name, args, { conversationId: chat, signal: f.signal });
+  const body = await run("http_request", { url: "https://example.com" }, 99);
+  await run("database_schema", schema, 100);
+  await expect(
+    run(
+      "json_import",
+      { ...mapping, bodyRef: body.bodyRef, operationId: "foreign" },
+      100,
+    ),
+  ).rejects.toMatchObject({ code: "validation" });
+  await f.invoke("database_schema", schema);
+  await expect(
+    f.invoke("json_import", {
+      ...mapping,
+      bodyRef: body.bodyRef,
+      operationId: "foreign",
+    }),
+  ).rejects.toMatchObject({ code: "validation" });
+  f.deny();
+  await expect(
+    run("http_request", { url: "https://example.com" }, 99),
+  ).rejects.toMatchObject({ code: "permission" });
+});
+it("reopens conversation-local data and never accepts a Skill ID in the reserved namespace", async () => {
+  const f = await fixture();
+  const ctx = { conversationId: 99, signal: f.signal };
+  const saved = await f.service.execute(
+    "artifact_create",
+    {
+      title: "Local",
+      text: "saved",
+      mime: "text/plain",
+      operationId: "persist",
+    },
+    ctx,
+  );
+  await f.service.close();
+  const reopened = new CapabilityService(f.options);
+  cleanups.push(() => reopened.close());
+  expect((await reopened.artifact(99, String(saved.ref))).text).toBe("saved");
+  await expect(
+    reopened.execute(
+      "http_request",
+      { skillId: "\u0000moose-conversation:99", url: "https://example.com" },
+      ctx,
+    ),
+  ).rejects.toMatchObject({ code: "validation" });
 });

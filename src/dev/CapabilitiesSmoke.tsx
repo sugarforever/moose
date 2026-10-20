@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useSyncExternalStore } from "react";
 import { ScrollView, Text, View, Button } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { openDatabaseAsync, deleteDatabaseAsync } from "expo-sqlite";
@@ -6,10 +6,13 @@ import { WebView } from "react-native-webview";
 import { SerialSqliteDatabase } from "../generated/runtime";
 import { runCapabilitySmoke } from "./capabilities-smoke";
 import { artifactPreview } from "../capabilities/artifact-preview";
+import { CapabilityApproval } from "../ui/Artifacts";
+import { approvals } from "../platform/capabilities";
 import { shareArtifact } from "../platform/capabilities";
 import type { Artifact } from "../capabilities/service";
 
 export function CapabilitiesSmokeApp() {
+  const approval = useSyncExternalStore(approvals.subscribe, approvals.get);
   const [status, setStatus] = useState(
     "Running native capability checks......",
   );
@@ -17,14 +20,17 @@ export function CapabilitiesSmokeApp() {
   useEffect(() => {
     void (async () => {
       try {
-        const filename = "moose-capabilities-smoke.sqlite";
-        const old = await openDatabaseAsync(filename);
-        await old.closeAsync();
-        await deleteDatabaseAsync(filename);
-        const result = await runCapabilitySmoke(
-          async () =>
-            new SerialSqliteDatabase(await openDatabaseAsync(filename)),
-        );
+        const initialized = new Set<string>();
+        const result = await runCapabilitySmoke(async (key) => {
+          const filename = `moose-capabilities-smoke-${key}.sqlite`;
+          if (!initialized.has(filename)) {
+            const previous = await openDatabaseAsync(filename);
+            await previous.closeAsync();
+            await deleteDatabaseAsync(filename);
+            initialized.add(filename);
+          }
+          return new SerialSqliteDatabase(await openDatabaseAsync(filename));
+        });
         setArtifact(result.artifact);
         setStatus(
           `Capability smoke passed\n${result.checks.map((c) => `✓ ${c}`).join("\n")}`,
@@ -38,6 +44,7 @@ export function CapabilitiesSmokeApp() {
   }, []);
   return (
     <SafeAreaProvider>
+      <CapabilityApproval approval={approval} />
       <SafeAreaView style={{ flex: 1 }}>
         <ScrollView
           style={{ maxHeight: 460 }}
@@ -45,6 +52,28 @@ export function CapabilitiesSmokeApp() {
         >
           <Text selectable>{status}</Text>
         </ScrollView>
+        <Button
+          title="Test conversation permission"
+          onPress={() =>
+            void approvals
+              .request(
+                {
+                  conversationId: 3,
+                  skillId: "",
+                  permission: "http:https://example.com",
+                  signal: new AbortController().signal,
+                },
+                "Moose · 当前对话",
+                "Native scope smoke",
+              )
+              .then((allow) =>
+                setStatus(
+                  (status) =>
+                    `${status}\n${allow ? "✓" : "Denied"} Conversation permission dialog`,
+                ),
+              )
+          }
+        />
         {artifact && (
           <>
             <Button

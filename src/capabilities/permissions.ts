@@ -1,6 +1,7 @@
 import type { SqliteDatabase } from "@earendil-works/pi-durable/storage/sqlite";
 export type Grant = {
   conversationId: number;
+  /** Empty for conversation-owned tools; otherwise the explicit Skill ID. */
   skillId: string;
   permission: string;
 };

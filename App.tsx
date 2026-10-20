@@ -163,7 +163,7 @@ function MooseApp() {
           : ["top", "left", "right", "bottom"]
       }
     >
-      <CapabilityApproval moose={moose} />
+      <CapabilityApproval approval={moose.approval} />
       <Artifacts
         moose={moose}
         visible={artifactsVisible}

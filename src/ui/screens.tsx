@@ -256,8 +256,10 @@ export function SettingsScreen({ moose }: { moose: Moose }) {
               style={{ gap: 4 }}
             >
               <Text style={s.caption}>
-                {moose.skills.find((s) => s.id === grant.skillId)?.name ??
-                  "已卸载 Skill"}
+                {grant.skillId
+                  ? (moose.skills.find((s) => s.id === grant.skillId)?.name ??
+                    "已卸载 Skill")
+                  : "Moose · 当前对话"}
               </Text>
               <Caption>{permissionLabel(grant.permission)}</Caption>
             </View>

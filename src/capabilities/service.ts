@@ -24,7 +24,7 @@ export type Invocation = {
 };
 export type Artifact = {
   ref: string;
-  skillId: string;
+  skillId?: string;
   title: string;
   mime: "text/html" | "text/plain";
   text: string;
@@ -51,6 +51,8 @@ const randomId = () =>
   Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
     byte.toString(16).padStart(2, "0"),
   ).join("");
+// Control characters are rejected in explicit Skill IDs, reserving this namespace.
+const conversationStore = (id: number) => `\0moose-conversation:${id}`;
 const setup = `CREATE TABLE IF NOT EXISTS _moose_receipts(id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, result TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS _moose_objects(ref TEXT PRIMARY KEY, kind TEXT NOT NULL, text TEXT NOT NULL, meta TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS _moose_documents(name TEXT PRIMARY KEY, text TEXT NOT NULL);
@@ -118,11 +120,13 @@ export class CapabilityService {
       )
         fail("validation", "Invalid tool arguments");
       bounded(JSON.stringify(args), 1024 * 1024);
-      const skillId = args.skillId as string;
-      const skill = (await this.options.skills(ctx.conversationId)).find(
-        (s) => s.id === skillId,
-      );
-      if (!skill)
+      const skillId = args.skillId as string | undefined;
+      const skill = skillId
+        ? (await this.options.skills(ctx.conversationId)).find(
+            (s) => s.id === skillId,
+          )
+        : undefined;
+      if (skillId && !skill)
         return fail(
           "permission",
           "Skill must be installed and enabled in this conversation",
@@ -132,7 +136,7 @@ export class CapabilityService {
         if (
           !(await this.options.authorize(
             ctx.conversationId,
-            skillId,
+            skillId ?? "",
             permission,
             signal,
           ))
@@ -141,6 +145,7 @@ export class CapabilityService {
         check(signal);
         // Grants and installed selections can change while a prompt is open.
         if (
+          skillId &&
           !(await this.options.skills(ctx.conversationId)).some(
             (s) => s.id === skillId,
           )
@@ -153,8 +158,12 @@ export class CapabilityService {
             ? "database:read"
             : "database:write",
         );
-      if (name.startsWith("document_")) await authorize("documents:shared");
-      const db = await this.db(skillId);
+      if (skillId && name.startsWith("document_"))
+        await authorize("documents:shared");
+      const scope = skillId ? "skill-shared" : "conversation-private";
+      const db = await this.db(
+        skillId ?? conversationStore(ctx.conversationId),
+      );
       check(ctx.signal);
       const now = this.options.now ?? Date.now;
       const mutate = async (
@@ -344,7 +353,7 @@ export class CapabilityService {
             offset,
           );
           return {
-            scope: "skill-shared",
+            scope,
             documents: documents.slice(0, 50),
             nextOffset: documents.length > 50 ? offset + 50 : null,
           };
@@ -356,7 +365,7 @@ export class CapabilityService {
           );
           if (!row) fail("validation", "Document not found");
           return {
-            scope: "skill-shared",
+            scope,
             name: args.name,
             ...this.page(row!.text, args),
           };
@@ -385,7 +394,7 @@ export class CapabilityService {
               args.name as string,
               text,
             );
-            return { scope: "skill-shared", name: args.name };
+            return { scope, name: args.name };
           });
         case "artifact_create":
           return await mutate(args, async (tx) => {
@@ -410,6 +419,8 @@ export class CapabilityService {
             };
           });
         case "skill_resource_read": {
+          if (!skill)
+            return fail("permission", "Skill must be installed and enabled");
           const path = args.path as string;
           if (path === "SKILL.md")
             return {
@@ -483,7 +494,13 @@ export class CapabilityService {
     };
   }
   async artifacts(conversationId: number): Promise<Omit<Artifact, "text">[]> {
-    const skills = await this.options.skills(conversationId);
+    const skills: { id: string; skillId?: string }[] = [
+      { id: conversationStore(conversationId) },
+      ...(await this.options.skills(conversationId)).map((skill) => ({
+        id: skill.id,
+        skillId: skill.id,
+      })),
+    ];
     const results: Omit<Artifact, "text">[] = [];
     for (const skill of skills) {
       const db = await this.db(skill.id);
@@ -496,7 +513,7 @@ export class CapabilityService {
         if (meta.conversationId === conversationId)
           results.push({
             ref: row.ref,
-            skillId: skill.id,
+            skillId: skill.skillId,
             title: meta.title,
             mime: meta.mime,
           });
@@ -505,7 +522,14 @@ export class CapabilityService {
     return results;
   }
   async artifact(conversationId: number, ref: string): Promise<Artifact> {
-    for (const skill of await this.options.skills(conversationId)) {
+    const stores: { id: string; skillId?: string }[] = [
+      { id: conversationStore(conversationId) },
+      ...(await this.options.skills(conversationId)).map((skill) => ({
+        id: skill.id,
+        skillId: skill.id,
+      })),
+    ];
+    for (const skill of stores) {
       const row = await (
         await this.db(skill.id)
       ).get<{ text: string; meta: string }>(
@@ -517,7 +541,7 @@ export class CapabilityService {
         if (meta.conversationId === conversationId)
           return {
             ref,
-            skillId: skill.id,
+            skillId: skill.skillId,
             title: meta.title,
             mime: meta.mime,
             text: row.text,

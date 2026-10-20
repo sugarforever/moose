@@ -55,10 +55,10 @@ export async function openMobile() {
       `title:${request.conversationId}`,
     );
     return (
-      !!skill &&
+      (!request.skillId || !!skill) &&
       approvals.request(
         request,
-        skill.name,
+        skill?.name ?? "Moose · 当前对话",
         title
           ? (JSON.parse(title.value) as string)
           : `对话 ${request.conversationId}`,

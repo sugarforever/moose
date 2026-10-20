@@ -21,7 +21,7 @@ export async function runCapabilitySmoke(
   };
   const options = {
     openDatabase,
-    skills: async () => [skill],
+    skills: async (id: number) => (id === 3 ? [] : [skill]),
     authorize: async () => true,
     fetcher: async () => {
       const text = JSON.stringify({
@@ -152,6 +152,31 @@ export async function runCapabilitySmoke(
         )
       ).text === '{"players":[1,2]}',
       "Shared document reopens across conversations",
+    );
+    const localContext = { ...context, conversationId: 3 };
+    const localBody = await service.execute(
+      "http_request",
+      { url: "https://example.com/bootstrap" },
+      localContext,
+    );
+    assert(
+      typeof localBody.bodyRef === "string",
+      "General HTTP works without installed Skills",
+    );
+    const localArtifact = await service.execute(
+      "artifact_create",
+      {
+        title: "Local report",
+        mime: "text/plain",
+        text: "Conversation only",
+        operationId: "local-report",
+      },
+      localContext,
+    );
+    assert(
+      (await service.artifacts(3)).some((a) => a.ref === localArtifact.ref) &&
+        !(await service.artifacts(1)).some((a) => a.ref === localArtifact.ref),
+      "General artifact is discoverable and conversation-isolated",
     );
     return { checks, artifact };
   } finally {
