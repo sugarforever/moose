@@ -18,6 +18,7 @@ import {
   colors,
   s,
 } from "./kit";
+import { permissionLabel } from "../platform/capabilities";
 import type { Moose } from "./useMoose";
 
 export function TasksScreen({ moose }: { moose: Moose }) {
@@ -233,6 +234,9 @@ export function SettingsScreen({ moose }: { moose: Moose }) {
   const [saving, setSaving] = useState(false);
   const [showModels, setShowModels] = useState(false);
   const models = moose.runtime?.models.getModels(provider) ?? [];
+  useEffect(() => {
+    void moose.refreshGrants();
+  }, [moose.runtime, moose.conversationId]);
   return (
     <ScrollView
       contentContainerStyle={s.page}
@@ -241,6 +245,32 @@ export function SettingsScreen({ moose }: { moose: Moose }) {
       <View style={{ gap: 6 }}>
         <Text style={s.heading}>设置</Text>
       </View>
+      <Card>
+        <Text style={s.subheading}>当前对话权限</Text>
+        {moose.grants.length === 0 ? (
+          <Caption>暂无授权</Caption>
+        ) : (
+          moose.grants.map((grant) => (
+            <View
+              key={`${grant.skillId}:${grant.permission}`}
+              style={{ gap: 4 }}
+            >
+              <Text style={s.caption}>
+                {moose.skills.find((s) => s.id === grant.skillId)?.name ??
+                  "已卸载 Skill"}
+              </Text>
+              <Caption>{permissionLabel(grant.permission)}</Caption>
+            </View>
+          ))
+        )}
+        {moose.grants.length > 0 && (
+          <Button
+            label="撤销全部授权"
+            secondary
+            onPress={() => void moose.revokeGrants()}
+          />
+        )}
+      </Card>
       {provider === "openai-codex" && <ChatGPTConnection moose={moose} />}
       <Card>
         <View style={s.row}>

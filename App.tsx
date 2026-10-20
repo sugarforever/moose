@@ -33,6 +33,7 @@ import {
   s,
   type IconName,
 } from "./src/ui/kit";
+import { Artifacts, CapabilityApproval } from "./src/ui/Artifacts";
 import type { ChatMessage } from "./src/runtime/engine";
 
 type Tab = "chat" | "tasks" | "skills" | "settings";
@@ -60,6 +61,7 @@ function MooseApp() {
   const [tab, setTab] = useState<Tab>("chat");
   const [text, setText] = useState("");
   const [history, setHistory] = useState(false);
+  const [artifactsVisible, setArtifactsVisible] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const followBottom = useRef(true);
   const list = useRef<FlatList<ChatMessage>>(null);
@@ -110,23 +112,29 @@ function MooseApp() {
     }
   };
   const conversationMenu = () => {
+    const artifacts = () => {
+      void moose.refreshArtifacts();
+      setArtifactsVisible(true);
+    };
     const save = () => {
       void moose.checkpoint();
     };
     if (Platform.OS === "ios") {
       ActionSheetIOS.showActionSheetWithOptions(
         {
-          options: ["保存检查点", "取消"],
-          cancelButtonIndex: 1,
+          options: ["保存检查点", "文件与报告", "取消"],
+          cancelButtonIndex: 2,
           disabledButtonIndices: moose.busy ? [0] : [],
         },
         (index) => {
           if (index === 0 && !moose.busy) save();
+          if (index === 1) artifacts();
         },
       );
     } else {
       Alert.alert("对话", undefined, [
         ...(!moose.busy ? [{ text: "保存检查点", onPress: save }] : []),
+        { text: "文件与报告", onPress: artifacts },
         { text: "取消", style: "cancel" },
       ]);
     }
@@ -155,6 +163,12 @@ function MooseApp() {
           : ["top", "left", "right", "bottom"]
       }
     >
+      <CapabilityApproval moose={moose} />
+      <Artifacts
+        moose={moose}
+        visible={artifactsVisible}
+        onClose={() => setArtifactsVisible(false)}
+      />
       <View style={a.shell}>
         <View style={a.header}>
           {tab === "chat" ? (

@@ -8,6 +8,9 @@ import {
   createMobileModels,
 } from "../generated/runtime";
 import type { ModelSettings } from "../runtime/engine";
+import { PermissionStore } from "../generated/runtime";
+import { approvals, openCapabilityDatabase } from "./capabilities";
+import type { Skill } from "../skills/skills";
 import { codexAuth } from "./codex";
 
 export const defaultSettings: ModelSettings = {
@@ -39,17 +42,45 @@ export async function openMobile() {
     nativeFetch as typeof fetch,
     (signal) => codexAuth.getAccessToken(signal),
   );
+  const database = new SerialSqliteDatabase(native);
+  const permissions = await PermissionStore.open(database, async (request) => {
+    const row = await database.get<{ value: string }>(
+      "SELECT value FROM moose_data WHERE key='skills'",
+    );
+    const skill = (row ? (JSON.parse(row.value) as Skill[]) : []).find(
+      (s) => s.id === request.skillId,
+    );
+    const title = await database.get<{ value: string }>(
+      "SELECT value FROM moose_data WHERE key=?",
+      `title:${request.conversationId}`,
+    );
+    return (
+      !!skill &&
+      approvals.request(
+        request,
+        skill.name,
+        title
+          ? (JSON.parse(title.value) as string)
+          : `对话 ${request.conversationId}`,
+      )
+    );
+  });
   const engine = await MobileEngine.open(
-    new SerialSqliteDatabase(native),
+    database,
     models,
     defaultSettings,
     Date.now,
     (workspaceId) => createExpoWorkspace({ workspaceId }),
+    {
+      openDatabase: openCapabilityDatabase,
+      fetcher: nativeFetch as typeof fetch,
+      authorize: (...args) => permissions.authorize(...args),
+    },
   );
   const settings = await engine.read<ModelSettings>(
     "settings",
     defaultSettings,
   );
   engine.updateSettings(settings);
-  return { engine, models, settings };
+  return { engine, models, settings, permissions };
 }

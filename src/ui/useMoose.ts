@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { AppState } from "react-native";
 import { randomUUID } from "expo-crypto";
 import { fetch as nativeFetch } from "expo/fetch";
@@ -14,6 +20,12 @@ import type { Skill } from "../skills/skills";
 import type { LiveState } from "@earendil-works/pi-durable";
 import { codexAuth } from "../platform/codex";
 import { loginCodexBrowser } from "../platform/codex-browser";
+import {
+  approvals,
+  shareArtifact as exportArtifact,
+} from "../platform/capabilities";
+import type { Artifact } from "../capabilities/service";
+import type { Grant } from "../capabilities/permissions";
 import type { CodexStatus, DeviceChallenge } from "../auth/codex";
 
 export type ChatGPTLogin = {
@@ -33,6 +45,9 @@ export type Pending = {
   requestId: string;
 };
 export function useMoose() {
+  const approval = useSyncExternalStore(approvals.subscribe, approvals.get);
+  const [artifacts, setArtifacts] = useState<Omit<Artifact, "text">[]>([]);
+  const [grants, setGrants] = useState<Grant[]>([]);
   const [runtime, setRuntime] = useState<Runtime>();
   const [settings, setSettings] = useState<ModelSettings>(defaultSettings);
   const [conversationId, setConversationId] = useState<number>();
@@ -119,6 +134,8 @@ export function useMoose() {
     if (!runtime || !conversationId) return;
     let disposed = false;
     let stop: (() => Promise<unknown>) | undefined;
+    setArtifacts([]);
+    setGrants([]);
     setMessages([]);
     setPartial("");
     setBusy(false);
@@ -223,6 +240,41 @@ export function useMoose() {
     setWorking(false);
   }
   return {
+    approval,
+    artifacts,
+    grants,
+    refreshArtifacts: async () => {
+      if (runtime && conversationId)
+        await run(async () =>
+          setArtifacts(
+            (await runtime.engine.capabilities?.artifacts(conversationId)) ??
+              [],
+          ),
+        );
+    },
+    openArtifact: async (ref: string) => {
+      if (!runtime || !conversationId) return;
+      try {
+        return await runtime.engine.capabilities?.artifact(conversationId, ref);
+      } catch {
+        setError("无法打开此文件");
+      }
+    },
+    shareArtifact: (artifact: Artifact) => run(() => exportArtifact(artifact)),
+    refreshGrants: async () => {
+      if (runtime && conversationId)
+        await run(async () =>
+          setGrants(await runtime.permissions.list(conversationId)),
+        );
+    },
+    revokeGrants: () =>
+      run(async () => {
+        if (runtime && conversationId) {
+          await runtime.engine.stopConversation(conversationId);
+          await runtime.permissions.revoke(conversationId);
+          setGrants([]);
+        }
+      }),
     runtime,
     settings,
     conversationId,
