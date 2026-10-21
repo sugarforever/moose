@@ -67,7 +67,7 @@ OpenAI and Anthropic each require their own API key. API usage is billed separat
 Selecting ChatGPT provides two sign-in methods:
 
 - **Sign in to ChatGPT**: Complete sign-in in the official browser page. The app temporarily listens on `127.0.0.1:1455` for the OAuth callback, validates PKCE and state, and exchanges the authorization code for tokens.
-- **Device code sign-in**: Obtain a device code, open the [official authorization page](https://auth.openai.com/codex/device) in a phone or desktop browser, sign in, and enter the code. Your account or workspace must permit device authorization.
+- **Sign in with device code**: Obtain a device code, open the [official authorization page](https://auth.openai.com/codex/device) in a phone or desktop browser, sign in, and enter the code. Your account or workspace must permit device authorization.
 
 Save the ChatGPT connection after authorization. Tokens are stored through SecureStore and refreshed automatically. You can cancel sign-in or sign out. Inference uses a separate Codex SSE channel; failures do not automatically switch to API-key billing. Account eligibility, quotas, and model access are determined by the provider.
 
@@ -103,7 +103,7 @@ First-time setup still requires these steps:
 
 1. Install a new Moose APK containing the native setup module. Older APKs and Expo Go do not include it; developers must rebuild the native client.
 2. Install and open Termux once. Wait for initialization to finish and a command prompt to appear.
-3. Open Moose → **Settings** → **Execution environment**, tap **Authorize command execution**, and allow commands to run in Termux. If no system prompt appears, or you previously denied permission, tap **Open system settings** and allow it under Moose's app permissions / other permissions.
+3. Open Moose → **Settings** → **Execution environment**, tap **Allow command execution**, and allow commands to run in Termux. If no system prompt appears, or you previously denied permission, tap **Open system settings** and allow it under Moose's app permissions / other permissions.
 4. On the same page, long-press to copy the one-time configuration command, tap **Open Termux**, paste and run it, then return to Moose. The complete command is:
 
 ```sh

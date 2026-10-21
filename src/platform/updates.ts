@@ -87,9 +87,12 @@ export function createAndroidUpdates(): UpdateController | undefined {
           );
         }
         if (!response.ok)
-          throw new Error(`检查更新失败（HTTP ${response.status}）`);
+          throw new Error(
+            `Failed to check for updates (HTTP ${response.status})`,
+          );
         const text = await response.text();
-        if (text.length > 2 * 1024 * 1024) throw new Error("更新信息过大");
+        if (text.length > 2 * 1024 * 1024)
+          throw new Error("Update information is too large");
         return JSON.parse(text) as unknown;
       } finally {
         clearTimeout(timer);
@@ -118,7 +121,7 @@ export function createAndroidUpdates(): UpdateController | undefined {
         const result = await task.downloadAsync();
         signal.throwIfAborted();
         if (!result || result.status !== 200)
-          throw new Error("下载未完成，请重试");
+          throw new Error("Download incomplete. Try again.");
       } finally {
         clearTimeout(timer);
         signal.removeEventListener("abort", onAbort);

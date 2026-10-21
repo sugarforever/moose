@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 class MooseUpdatesModule : Module() {
   private val installGeneration = AtomicLong(0)
-  private val context get() = requireNotNull(appContext.reactContext) { "应用上下文不可用" }
+  private val context get() = requireNotNull(appContext.reactContext) { "Application context is unavailable" }
 
   @Suppress("DEPRECATION")
   private fun code(info: PackageInfo): Long =
@@ -35,9 +35,9 @@ class MooseUpdatesModule : Module() {
 
   @Suppress("DEPRECATION")
   private fun verify(sha256: String, size: Double, versionCode: Double): File {
-    require(sha256.matches(Regex("[a-f0-9]{64}"))) { "安装包摘要无效" }
+    require(sha256.matches(Regex("[a-f0-9]{64}"))) { "Invalid package digest" }
     val file = apk()
-    require(file.isFile && file.length().toDouble() == size) { "安装包大小校验失败，请重新下载" }
+    require(file.isFile && file.length().toDouble() == size) { "Package size verification failed. Download it again." }
     val digest = MessageDigest.getInstance("SHA-256")
     file.inputStream().buffered().use { input ->
       val bytes = ByteArray(64 * 1024)
@@ -48,14 +48,14 @@ class MooseUpdatesModule : Module() {
       }
     }
     val actual = digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
-    require(actual == sha256) { "安装包 SHA-256 校验失败，请重新下载" }
+    require(actual == sha256) { "Package SHA-256 verification failed. Download it again." }
     val pm = context.packageManager
     val installed = pm.getPackageInfo(context.packageName, flags())
-    val incoming = requireNotNull(pm.getPackageArchiveInfo(file.absolutePath, flags())) { "无法读取安装包" }
-    require(incoming.packageName == context.packageName) { "安装包不属于 Moose" }
-    require(code(incoming).toDouble() == versionCode && code(incoming) > code(installed)) { "安装包版本无效" }
+    val incoming = requireNotNull(pm.getPackageArchiveInfo(file.absolutePath, flags())) { "Unable to read the package" }
+    require(incoming.packageName == context.packageName) { "The package does not belong to Moose" }
+    require(code(incoming).toDouble() == versionCode && code(incoming) > code(installed)) { "Invalid package version" }
     require(signatures(installed).isNotEmpty() && signatures(incoming) == signatures(installed)) {
-      "安装包签名与当前应用不同，无法覆盖更新"
+      "The package signature differs from the installed app. It cannot be installed as an update."
     }
     return file
   }
@@ -75,8 +75,8 @@ class MooseUpdatesModule : Module() {
     Function("beginInstall") { installGeneration.incrementAndGet().toDouble() }
     Function("cancelInstall") { installGeneration.incrementAndGet(); Unit }
     AsyncFunction("openPermission") { token: Double ->
-      require(Build.VERSION.SDK_INT >= 26) { "此系统无需单独授权" }
-      require(installGeneration.get().toDouble() == token) { "已取消安装" }
+      require(Build.VERSION.SDK_INT >= 26) { "This system does not require separate permission" }
+      require(installGeneration.get().toDouble() == token) { "Installation cancelled" }
       context.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
         Uri.parse("package:${context.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
@@ -86,7 +86,7 @@ class MooseUpdatesModule : Module() {
     }
     AsyncFunction("install") { sha256: String, size: Double, versionCode: Double, token: Double ->
       val file = verify(sha256, size, versionCode)
-      require(installGeneration.get().toDouble() == token) { "已取消安装" }
+      require(installGeneration.get().toDouble() == token) { "Installation cancelled" }
       val uri = FileProvider.getUriForFile(context, "${context.packageName}.moose.updates", file)
       val intent = Intent(Intent.ACTION_VIEW)
         .setDataAndType(uri, "application/vnd.android.package-archive")

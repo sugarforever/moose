@@ -46,8 +46,8 @@ it("keeps successful and failed tool results in transcript order, without exposi
       m.activity.output,
     ]),
   ).toEqual([
-    [2, "read · 已完成", false, "file contents"],
-    [3, "write · 失败", true, "permission denied"],
+    [2, "read · Completed", false, "file contents"],
+    [3, "write · Failed", true, "permission denied"],
   ]);
   expect(JSON.stringify(result)).not.toContain("hidden");
 });
@@ -73,9 +73,9 @@ it("shows queued and nested running tools while suppressing completed transcript
     ],
   } as LiveState;
   expect(chatActivity(live).map((r) => [r.label, r.output])).toEqual([
-    ["codemode · 执行中", undefined],
-    ["write · 等待中", undefined],
-    ["read · 执行中", "loading"],
+    ["codemode · Running", undefined],
+    ["write · Pending", undefined],
+    ["read · Running", "loading"],
   ]);
 });
 it("bounds output and marks missing tool results as interrupted rather than successful", () => {
@@ -91,7 +91,7 @@ it("bounds output and marks missing tool results as interrupted rather than succ
       },
     ],
   });
-  expect(rows[0].label).toContain("中断");
+  expect(rows[0].label).toContain("Interrupted");
   expect(rows[1].output!.length).toBeLessThanOrEqual(4001);
   expect(rows[1].output).toContain("…");
 });
@@ -100,7 +100,9 @@ it("clears run presentation after stop and uses a minimal waiting fallback", () 
   expect(
     chatActivity({ tools: [{ callId: "a", name: "read", status: "running" }] }),
   ).toEqual([]);
-  expect(chatActivity({ run }).map((r) => r.label)).toEqual(["等待回复"]);
+  expect(chatActivity({ run }).map((r) => r.label)).toEqual([
+    "Waiting for response",
+  ]);
 });
 it("shows retry, deferred and compaction states without displaying private model thinking", () => {
   expect(
@@ -108,13 +110,13 @@ it("shows retry, deferred and compaction states without displaying private model
       run,
       generation: { attempt: 2, retry: { at: 123, error: "private" } },
     }).map((r) => r.label),
-  ).toEqual(["等待重试 · 第 2 次尝试"]);
+  ).toEqual(["Retrying · Attempt 2"]);
   expect(
     chatActivity({
       run,
       generation: { attempt: 1, deferred: { pollAt: 123 } },
     }).map((r) => r.label),
-  ).toEqual(["等待模型响应"]);
+  ).toEqual(["Waiting for model"]);
   expect(
     chatActivity({
       run,
@@ -122,7 +124,7 @@ it("shows retry, deferred and compaction states without displaying private model
         { taskId: 2, reason: "manual", blocking: true, attempt: 1 },
       ],
     } as LiveState).map((r) => r.label),
-  ).toEqual(["整理上下文"]);
+  ).toEqual(["Compacting context"]);
   const rows = chatActivity({
     run,
     generation: {
@@ -132,7 +134,7 @@ it("shows retry, deferred and compaction states without displaying private model
       },
     },
   } as LiveState);
-  expect(rows.map((r) => r.label)).toEqual(["思考中"]);
+  expect(rows.map((r) => r.label)).toEqual(["Thinking"]);
   expect(JSON.stringify(rows)).not.toContain("private reasoning");
 });
 it("keeps current generation visible alongside a retained compaction failure", () => {
@@ -144,6 +146,9 @@ it("keeps current generation visible alongside a retained compaction failure", (
       message: { content: [{ type: "thinking", thinking: "hidden" }] },
     },
   } as LiveState);
-  expect(rows.map((row) => row.label)).toEqual(["上下文整理失败", "思考中"]);
+  expect(rows.map((row) => row.label)).toEqual([
+    "Context compaction failed",
+    "Thinking",
+  ]);
   expect(rows.some((row) => row.active)).toBe(true);
 });

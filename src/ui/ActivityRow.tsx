@@ -35,7 +35,7 @@ export function ActivityRow({ activity }: { activity: Activity }) {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={activity.label}
-          accessibilityHint="展开或收起工具输出"
+          accessibilityHint="Expand or collapse tool output"
           accessibilityState={{ expanded }}
           onPress={() => setExpanded(!expanded)}
           style={{ minHeight: 44, justifyContent: "center" }}

@@ -105,7 +105,9 @@ export function useMoose() {
       setError("");
       await operation();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "操作失败，请重试");
+      setError(
+        cause instanceof Error ? cause.message : "Operation failed. Try again.",
+      );
     }
   }, []);
   useEffect(() => {
@@ -214,12 +216,14 @@ export function useMoose() {
   async function send(text: string, retry?: Pending) {
     if (!runtime || !conversationId || inFlight.current) return;
     if (!hasCredentials) {
-      setError("请先在设置中配置 API Key 或登录 ChatGPT");
+      setError("Add an API key or sign in to ChatGPT in Settings first.");
       return;
     }
     if (!text.trim()) return;
     if (pending && !retry) {
-      setError("请先确认待处理的请求，使用相同 ID 重试。");
+      setError(
+        "Resolve the pending request first by retrying with the same ID.",
+      );
       return;
     }
     inFlight.current = true;
@@ -246,9 +250,12 @@ export function useMoose() {
         setHasCredentials(ready);
         if (settings.provider === "openai-codex") {
           setCodexStatus(await codexAuth.status());
-          if (!ready) throw new Error("ChatGPT 登录已失效，请在设置中重新授权");
+          if (!ready)
+            throw new Error(
+              "Your ChatGPT session has expired. Sign in again in Settings.",
+            );
         }
-        throw new Error("本次回答未完成。可以重新运行此任务。");
+        throw new Error("The response is incomplete. You can rerun this task.");
       }
       if (messages.length === 0)
         await runtime.engine.write(
@@ -278,7 +285,7 @@ export function useMoose() {
       try {
         return await runtime.engine.capabilities?.artifact(conversationId, ref);
       } catch {
-        setError("无法打开此文件");
+        setError("Cannot open this file.");
       }
     },
     shareArtifact: (artifact: Artifact) => run(() => exportArtifact(artifact)),
@@ -303,7 +310,8 @@ export function useMoose() {
       onPhase: (phase: SetupPhase) => void,
     ) => {
       const current = runtimeOwner.current;
-      if (!current || inFlight.current) throw new Error("请等待当前操作完成");
+      if (!current || inFlight.current)
+        throw new Error("Wait for the current operation to finish.");
       const previous = current.executionEnvironment === "termux";
       inFlight.current = true;
       setWorking(true);
@@ -350,7 +358,7 @@ export function useMoose() {
           setError(
             error instanceof Error
               ? error.message
-              : "切换失败，请重试打开运行时",
+              : "Switch failed. Try reopening the runtime.",
           );
         throw error;
       } finally {
@@ -385,7 +393,9 @@ export function useMoose() {
       } catch (error) {
         if (appMounted.current)
           setError(
-            error instanceof Error ? error.message : "无法打开运行时，请重试",
+            error instanceof Error
+              ? error.message
+              : "Cannot open the runtime. Try again.",
           );
       } finally {
         inFlight.current = false;
@@ -441,7 +451,10 @@ export function useMoose() {
         if (controller.signal.aborted) return;
         setChatGPTLogin({
           phase: "error",
-          error: cause instanceof Error ? cause.message : "授权失败，请重试",
+          error:
+            cause instanceof Error
+              ? cause.message
+              : "Authorization failed. Try again.",
         });
       } finally {
         if (loginController.current === controller)
@@ -484,7 +497,7 @@ export function useMoose() {
         if (runtime && conversationId) {
           await runtime.engine.checkpoint(
             conversationId,
-            `检查点 ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
+            `Checkpoint ${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`,
           );
           await refresh(runtime.engine);
         }
@@ -522,7 +535,8 @@ export function useMoose() {
     repeat: (prompt: string, minutes: number, count: number) =>
       run(async () => {
         if (!runtime || !conversationId) return;
-        if (!hasCredentials) throw new Error("请先在设置中配置模型连接");
+        if (!hasCredentials)
+          throw new Error("Configure a model connection in Settings first.");
         await runtime.engine.prepareConversation(conversationId, settings);
         await runtime.engine.repeat(
           conversationId,
@@ -543,12 +557,12 @@ export function useMoose() {
       run(async () => {
         if (!runtime) return;
         if (!runtime.models.getModel(next.provider, next.modelId))
-          throw new Error("模型不在当前 Pi 模型列表中，请选择列表中的模型");
+          throw new Error("Choose a model from the current Pi model list.");
         if (key.trim() && next.provider !== "openai-codex")
           await credentials.set(next.provider, key);
         const ready = await credentials.has(next.provider);
         if (next.provider === "openai-codex" && !ready)
-          throw new Error("请先完成 ChatGPT 设备码登录");
+          throw new Error("Complete ChatGPT device code sign-in first.");
         if (conversationId)
           await runtime.engine.prepareConversation(conversationId, next);
         await runtime.engine.write("settings", next);

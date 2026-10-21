@@ -167,16 +167,16 @@ it("runs genuine tools through Moose, persists files, isolates conversations and
     "Saved",
   ]);
   await detach();
-  expect(observed).toContain("write · 执行中");
+  expect(observed).toContain("write · Running");
   expect(
     toolMessages(await first.context(engine.context)).map(
       (row) => row.activity.label,
     ),
   ).toEqual([
-    "write · 已完成",
-    "edit · 已完成",
-    "read · 已完成",
-    "workspace_list · 已完成",
+    "write · Completed",
+    "edit · Completed",
+    "read · Completed",
+    "workspace_list · Completed",
   ]);
   const checkpoint = await engine.checkpoint(first.id, "File checkpoint");
   const branch = await engine.restoreCheckpoint(checkpoint.id);
@@ -229,10 +229,10 @@ it("runs genuine tools through Moose, persists files, isolates conversations and
       await (await engine.conversation(first.id)).context(engine.context),
     ).map((row) => row.activity.label),
   ).toEqual([
-    "write · 已完成",
-    "edit · 已完成",
-    "read · 已完成",
-    "workspace_list · 已完成",
+    "write · Completed",
+    "edit · Completed",
+    "read · Completed",
+    "workspace_list · Completed",
   ]);
   expect(upgraded.instructions).not.toContain(
     "No shell, scripts, filesystem tools",

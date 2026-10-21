@@ -1,25 +1,33 @@
-# Android Release 更新
+# Android Release Updates
 
-## 设计与验收
+## Design and acceptance
 
-应用从公开仓库 sugarforever/moose 的 GitHub Releases 列表检查更新，包含当前使用的预发布。无需 GitHub Token 或应用后端。自动检查在启动和回到前台时触发，两次尝试至少相隔六小时；手动检查不受此间隔限制，限流响应仍需遵守退避时间。网络失败不能阻止聊天。
+The app checks the GitHub Releases list in the public sugarforever/moose repository, including prereleases currently in use. No GitHub token or app backend is required. Automatic checks run on launch and return to the foreground, at least six hours apart. Manual checks bypass this interval but still respect rate-limit backoff. Network failures must not block chat.
 
-每个支持更新的 Release 附带 moose-update.json，记录 APK 文件名、版本、递增 versionCode、大小和 SHA-256。应用只接受该仓库 Release 附件的 HTTPS 地址。旧 Release 没有清单时跳过。版本判断以 versionCode 为准。
+Each release that supports updates includes moose-update.json with the APK filename, version, increasing versionCode, size, and SHA-256. The app accepts only HTTPS URLs for release assets in this repository. Older releases without a manifest are skipped. Version comparisons use versionCode.
 
-设置展示当前版本、检查结果、更新说明、下载进度、取消与错误。发现更新只显示入口，不自动下载或打断任务。下载到独立缓存目录；取消、失败和重新下载时清理文件。下载完成后流式验证 SHA-256，并检查包名、versionCode 和签名与当前应用兼容，再调用系统安装界面。缺少安装权限时跳转本应用的系统授权页，回来后用户再次点击安装。不能把打开安装器视为安装成功。
+Settings shows the current version, check results, release notes, download progress, cancellation, and errors. An available update only exposes an entry point; it does not download automatically or interrupt tasks. Downloads use a separate cache directory, with files cleaned up on cancellation, failure, and redownload. After downloading, verify SHA-256 by streaming and check that the package name, versionCode, and signature are compatible with the current app before opening the system installer. If installation permission is missing, open this app's system permission page; the user clicks install again on return. Opening the installer must not be treated as successful installation.
 
-Android 本地 Expo 模块提供版本查询、APK 校验、安装权限和安装器调用，不进入 Pi 运行包。iOS 不加载此模块，也不展示此更新入口。本次不接入 OTA、Play 或 iOS 更新。
+A local Android Expo module provides version queries, APK verification, installation permission, and installer invocation. It is excluded from the Pi runtime bundle. iOS neither loads this module nor shows the update entry point. OTA, Play, and iOS updates are outside this change.
 
-CI 为标签构建设置版本名，用 github.run_number 作为递增 versionCode，生成并发布清单。手动构建上传 APK 和清单，但不发布 Release。签名仍沿用现有测试签名，未解决生产密钥迁移；切换签名前必须单独规划设备本地数据迁移。
+CI sets the version name for tag builds and uses github.run_number as an increasing versionCode, then generates and publishes the manifest. Manual builds upload the APK and manifest without publishing a release. Signing continues to use the existing test signature; production key migration remains unresolved. Plan migration of device-local data separately before changing signatures.
 
-工作流迁移或重建时，必须保证 versionCode 高于所有已发布版本，不能重新从一开始编号。每次检查最多读取 20 个 Release，选择其中有效清单里构建编号最高的版本。
+When migrating or recreating workflows, ensure versionCode exceeds every published version; do not restart numbering at one. Each check reads at most 20 releases and chooses the highest build number among their valid manifests.
 
-验收包括受控 Releases/清单响应、旧版本过滤、预发布、恶意地址、校验失败、限流、并发、取消与安装权限流程；完整检查包含测试、类型检查和两端发布资源导出。Android 原生编译和真机覆盖升级必须单独报告，不以便携测试或资源导出代替。
+Acceptance covers controlled Releases/manifest responses, filtering older versions, prereleases, malicious URLs, verification failures, rate limits, concurrency, cancellation, and installation permission flows. Complete checks include tests, type checking, and release asset exports for both platforms. Report Android native compilation and in-place upgrades on a physical device separately; portable tests and asset exports cannot replace them.
 
-## 本次验证
+## Initial implementation validation
 
-- 隔离分支运行 `npm run verify` 通过，包含 65 项测试、TypeScript、真实 Pi 便携运行，以及 Android 和 iOS 的 Hermes 发布资源导出。
-- 更新与发布清单共 24 项受控测试，覆盖限流退避跨重启保存、取消期间的迟到结果、安装权限等待期间取消、缓存丢失后的重新下载，以及清单和安装包摘要生成。
-- Expo Android 自动链接识别本地 `moose-updates` 模块。`npx expo-doctor` 为 19/20：现有 `react-native-tcp-socket` 标记为新架构未测试，本地模块没有 React Native Directory 元数据。
-- 本机只有 Android platform-tools，缺少完整 SDK，未执行 Android 原生编译、模拟器或真机安装操作。资源导出不是 APK。未运行 iOS 原生构建，也没有真实模型请求。
-- 现有测试签名保持不变，生产签名迁移仍需另行设计。旧应用必须先手动安装一次带本功能的版本。
+- `npm run verify` passed on an isolated branch, including 65 tests, TypeScript, real Pi portable execution, and Android/iOS Hermes release asset exports.
+- The updater and release manifests have 24 controlled tests covering rate-limit backoff persistence across restarts, late results during cancellation, cancellation while waiting for installation permission, redownload after cache loss, and manifest/package digest generation.
+- Expo Android autolinking recognizes the local `moose-updates` module. `npx expo-doctor` scored 19/20: existing `react-native-tcp-socket` metadata marks the New Architecture as untested, and the local module has no React Native Directory metadata.
+- This machine has only Android platform-tools, without the complete SDK. Android native compilation, simulator operation, and physical-device installation were not performed. Asset exports are not APKs. No iOS native build or real model requests were run.
+- The existing test signature is unchanged; production signing migration still needs a separate design. Older apps require one manual installation of a version containing this feature.
+
+## Main-branch merge and English conversion
+
+PR #13 incorporates the current main branch. The release command retains all three assets: the APK, `moose-update.json`, and the Termux companion `service.mjs`.
+
+App-owned labels, errors, accessibility text, comments, and project documentation use English. UI date/time formatting uses `en-GB`. Existing user content and deliberate Unicode test fixtures keep their original text.
+
+The merged branch passed `npm run verify`: 164 tests passed and eight unsupported upstream watch cases were skipped, three Termux bootstrap tests passed, TypeScript and portable runtime checks passed, and Android/iOS Hermes release assets were exported. Formatting and conflict-marker checks passed. Independent code and documentation reviews found no important issues. Expo Doctor remains at 19/20, reporting the existing TCP New Architecture warning and missing directory metadata for the local update and Termux modules. No native application compilation, device installation, or real model requests were performed during this follow-up.

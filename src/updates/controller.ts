@@ -47,18 +47,18 @@ export interface UpdateState {
 }
 export class UpdateRateLimit extends Error {
   constructor(public readonly until: number) {
-    super("GitHub 请求过于频繁，请稍后检查");
+    super("GitHub rate limit reached. Check again later.");
   }
 }
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error("更新信息格式错误");
+    throw new Error("Invalid update information format");
   return value as Record<string, unknown>;
 }
 function assetUrl(value: unknown): string {
   if (typeof value !== "string" || !value.startsWith(RELEASE_PREFIX))
-    throw new Error("更新附件地址无效");
+    throw new Error("Invalid update asset URL");
   const url = new URL(value);
   if (
     url.username ||
@@ -69,7 +69,7 @@ function assetUrl(value: unknown): string {
     (!url.pathname.endsWith(".apk") &&
       !url.pathname.endsWith("/moose-update.json"))
   ) {
-    throw new Error("更新附件地址无效");
+    throw new Error("Invalid update asset URL");
   }
   return value;
 }
@@ -80,7 +80,8 @@ async function discover(
 ): Promise<AndroidUpdate | undefined> {
   const data = await platform.json(RELEASES_URL, signal);
   signal.throwIfAborted();
-  if (!Array.isArray(data)) throw new Error("GitHub 更新列表格式错误");
+  if (!Array.isArray(data))
+    throw new Error("Invalid GitHub release list format");
   let latest: AndroidUpdate | undefined;
   for (const item of data.slice(0, 20)) {
     const release = object(item);
@@ -107,17 +108,17 @@ async function discover(
       (manifest.size as number) <= 0 ||
       (manifest.size as number) >= 2 ** 31
     ) {
-      throw new Error("更新清单校验失败");
+      throw new Error("Update manifest validation failed");
     }
     const apk = assets.find((asset) => asset.name === manifest.apk);
     if (!apk || apk.size !== manifest.size)
-      throw new Error("更新安装包信息不匹配");
+      throw new Error("Update package information does not match");
     const url = assetUrl(apk.browser_download_url);
     if (
       url.slice(0, url.lastIndexOf("/")) !==
       manifestUrl.slice(0, manifestUrl.lastIndexOf("/"))
     )
-      throw new Error("更新附件不属于同一版本");
+      throw new Error("Update assets belong to different releases");
     if (
       (manifest.versionCode as number) <=
       Math.max(platform.versionCode, latest?.versionCode ?? 0)
@@ -169,7 +170,9 @@ export class UpdateController {
       this.retryAt = Math.max(this.retryAt, saved.retryAt);
       if (this.platform.now() < this.retryAt) {
         if (manual)
-          this.publish({ message: "GitHub 请求过于频繁，请稍后检查" });
+          this.publish({
+            message: "GitHub rate limit reached. Check again later.",
+          });
         return;
       }
       if (!manual && this.platform.now() < saved.nextCheck) return;
@@ -186,7 +189,7 @@ export class UpdateController {
       this.publish({
         status: update ? "available" : "idle",
         update,
-        message: update ? "" : "当前已是最新版本",
+        message: update ? "" : "You are up to date",
       });
     } catch (error) {
       if (operation.signal.aborted) this.publish(previous);
@@ -210,7 +213,10 @@ export class UpdateController {
         this.publish({
           status: "error",
           update: undefined,
-          message: error instanceof Error ? error.message : "检查更新失败",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Failed to check for updates",
         });
       }
     } finally {
@@ -240,10 +246,10 @@ export class UpdateController {
         status: operation.signal.aborted ? "available" : "error",
         progress: 0,
         message: operation.signal.aborted
-          ? "已取消下载"
+          ? "Download cancelled"
           : error instanceof Error
             ? error.message
-            : "下载更新失败",
+            : "Failed to download update",
       });
     } finally {
       this.operation = undefined;
@@ -263,14 +269,15 @@ export class UpdateController {
         operation.signal.throwIfAborted();
         this.publish({
           status: "ready",
-          message: "请允许安装应用，返回后再次点击安装",
+          message: "Allow app installation, then return and tap Install again.",
         });
       } else {
         await this.platform.install(this.state.update);
         operation.signal.throwIfAborted();
         this.publish({
           status: "ready",
-          message: "请在系统界面确认安装；取消后可再次安装",
+          message:
+            "Confirm installation in the system dialog. If cancelled, you can install again.",
         });
       }
     } catch (error) {
@@ -283,7 +290,7 @@ export class UpdateController {
           message:
             error instanceof Error
               ? error.message
-              : "打开安装界面失败，请重新下载",
+              : "Unable to open the installer. Download the update again.",
         });
       }
     } finally {

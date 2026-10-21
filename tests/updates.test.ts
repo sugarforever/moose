@@ -19,7 +19,7 @@ const releases = [
   {
     draft: false,
     prerelease: true,
-    body: "修复更新",
+    body: "Update fixes",
     assets: [
       {
         name: "moose-update.json",
@@ -188,7 +188,7 @@ describe("Android updates", () => {
   it("never installs a corrupt or incompatible APK and permits a fresh download", async () => {
     const h = harness({
       verify: async () => {
-        throw new Error("APK 校验失败");
+        throw new Error("APK verification failed");
       },
     });
     await h.controller.check(true);
@@ -266,7 +266,7 @@ describe("Android updates", () => {
   it("allows redownloading when Android evicts the verified APK from cache", async () => {
     const h = harness({
       install: async () => {
-        throw new Error("安装包不存在");
+        throw new Error("Package not found");
       },
     });
     await h.controller.check(true);

@@ -80,7 +80,8 @@ export function createMobileModels(
           name: "ChatGPT subscription",
           resolve: async ({ signal }) => {
             const apiKey = await getCodexToken?.(signal);
-            if (!apiKey) throw new Error("请先使用设备码登录 ChatGPT");
+            if (!apiKey)
+              throw new Error("Sign in to ChatGPT with a device code first");
             return { auth: { apiKey } };
           },
         },

@@ -43,7 +43,7 @@ export async function loginCodexBrowser(
   } catch {
     throw new CodexAuthError(
       "unavailable",
-      "浏览器回调需要新版原生客户端，请重新编译或使用设备码登录",
+      "Browser callbacks require a newer native client. Rebuild it or use device code sign-in.",
     );
   }
   const listener = await startLoopback(tcp, { state, signal });
@@ -52,7 +52,8 @@ export async function loginCodexBrowser(
   };
   signal.addEventListener("abort", onAbort, { once: true });
   try {
-    if (signal.aborted) throw new CodexAuthError("cancelled", "登录已取消");
+    if (signal.aborted)
+      throw new CodexAuthError("cancelled", "Sign-in cancelled");
     onWaiting();
     // Android returns `opened` immediately: that is not cancellation.
     const browser = WebBrowser.openBrowserAsync(attempt.authorizationUrl).then(
@@ -63,7 +64,8 @@ export async function loginCodexBrowser(
             listener.result,
             new Promise<never>((_, reject) =>
               setTimeout(
-                () => reject(new CodexAuthError("cancelled", "登录已取消")),
+                () =>
+                  reject(new CodexAuthError("cancelled", "Sign-in cancelled")),
                 500,
               ),
             ),

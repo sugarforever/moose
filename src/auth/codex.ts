@@ -27,7 +27,7 @@ export function browserCallbackCode(input: string, state: string): string {
   try {
     url = new URL(input);
   } catch {
-    throw new CodexAuthError("invalid_response", "无效的登录回调");
+    throw new CodexAuthError("invalid_response", "Invalid sign-in callback");
   }
   if (
     url.origin !== "http://localhost:1455" ||
@@ -40,11 +40,21 @@ export function browserCallbackCode(input: string, state: string): string {
     url.searchParams.getAll("code").length > 1 ||
     url.searchParams.getAll("error").length > 1
   )
-    throw new CodexAuthError("invalid_response", "登录回调校验失败，请重试");
+    throw new CodexAuthError(
+      "invalid_response",
+      "Sign-in callback validation failed. Try again.",
+    );
   if (url.searchParams.has("error"))
-    throw new CodexAuthError("denied", "授权未完成，请重新登录");
+    throw new CodexAuthError(
+      "denied",
+      "Authorization was not completed. Sign in again.",
+    );
   const code = url.searchParams.get("code");
-  if (!code) throw new CodexAuthError("invalid_response", "登录回调缺少授权码");
+  if (!code)
+    throw new CodexAuthError(
+      "invalid_response",
+      "Sign-in callback is missing an authorization code",
+    );
   return code;
 }
 interface Credential {
@@ -79,7 +89,7 @@ export class CodexAuthError extends Error {
 const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"; // Public Codex client ID, also used by Pi/OpenCode; not a client secret.
 const AUTH = "https://auth.openai.com";
 const STORAGE_KEY = "moose.auth.codex.v1";
-const cancelled = () => new CodexAuthError("cancelled", "登录已取消");
+const cancelled = () => new CodexAuthError("cancelled", "Sign-in cancelled");
 function sleep(ms: number, signal: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
     if (signal.aborted) {
@@ -101,7 +111,7 @@ function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new CodexAuthError(
       "invalid_response",
-      "授权服务返回了无法识别的响应",
+      "The authorization service returned an unrecognized response",
     );
   return value as Record<string, unknown>;
 }
@@ -128,7 +138,10 @@ function parseCredential(
     !Number.isFinite(seconds) ||
     seconds <= 0
   )
-    throw new CodexAuthError("invalid_response", "授权令牌响应缺少必要字段");
+    throw new CodexAuthError(
+      "invalid_response",
+      "The token response is missing required fields",
+    );
   // Claims are routing metadata from the HTTPS token response, not independently verified identity.
   // The Codex backend verifies the bearer token. Never use these claims as an app authorization decision.
   let accountId: unknown;
@@ -141,14 +154,20 @@ function parseCredential(
     );
     accountId = payload["https://api.openai.com/auth"]?.chatgpt_account_id;
   } catch {
-    throw new CodexAuthError("invalid_response", "授权令牌缺少 Codex 账户信息");
+    throw new CodexAuthError(
+      "invalid_response",
+      "The authorization token is missing Codex account information",
+    );
   }
   if (typeof accountId !== "string" || !accountId)
-    throw new CodexAuthError("invalid_response", "授权令牌缺少 Codex 账户信息");
+    throw new CodexAuthError(
+      "invalid_response",
+      "The authorization token is missing Codex account information",
+    );
   if (previous && previous.accountId !== accountId)
     throw new CodexAuthError(
       "invalid_response",
-      "刷新后的账户与原账户不一致，请重新登录",
+      "The refreshed account does not match the original account. Sign in again.",
     );
   return {
     version: 1,
@@ -208,7 +227,7 @@ export class CodexAuth {
         if (response.ok)
           throw new CodexAuthError(
             "invalid_response",
-            "授权服务返回了无法识别的响应",
+            "The authorization service returned an unrecognized response",
           );
       }
       this.assert(signal);
@@ -219,8 +238,8 @@ export class CodexAuth {
       throw new CodexAuthError(
         "network",
         controller.signal.aborted
-          ? "授权请求超时，请重试"
-          : "无法连接授权服务，请检查网络",
+          ? "Authorization request timed out. Try again."
+          : "Unable to connect to the authorization service. Check your connection.",
       );
     } finally {
       clearTimeout(timer);
@@ -243,7 +262,7 @@ export class CodexAuth {
     if (!response.ok)
       throw new CodexAuthError(
         "unavailable",
-        `无法申请设备码（${response.status}）。请确认账户或工作区允许 Codex 设备码登录。`,
+        `Unable to request a device code (${response.status}). Check that your account or workspace allows Codex device code sign-in.`,
       );
     const deviceAuthId = body.device_auth_id;
     const userCode = body.user_code ?? body.usercode;
@@ -256,7 +275,10 @@ export class CodexAuth {
       !Number.isFinite(interval) ||
       interval < 0
     )
-      throw new CodexAuthError("invalid_response", "设备授权响应缺少必要字段");
+      throw new CodexAuthError(
+        "invalid_response",
+        "The device authorization response is missing required fields",
+      );
     const expires =
       typeof body.expires_in === "number" && body.expires_in > 0
         ? Math.min(900, body.expires_in)
@@ -279,11 +301,17 @@ export class CodexAuth {
       this.assert(signal, challenge.attempt);
       const remaining = challenge.expiresAt - this.now();
       if (remaining <= 0)
-        throw new CodexAuthError("expired", "设备码已过期，请重新发起登录");
+        throw new CodexAuthError(
+          "expired",
+          "The device code has expired. Start sign-in again.",
+        );
       await this.sleep(Math.min(interval, remaining), signal);
       this.assert(signal, challenge.attempt);
       if (this.now() >= challenge.expiresAt)
-        throw new CodexAuthError("expired", "设备码已过期，请重新发起登录");
+        throw new CodexAuthError(
+          "expired",
+          "The device code has expired. Start sign-in again.",
+        );
       const { response, body } = await this.request(
         `${AUTH}/api/accounts/deviceauth/token`,
         {
@@ -300,9 +328,12 @@ export class CodexAuth {
       this.assert(signal, challenge.attempt);
       const code = errorCode(body);
       if (code === "access_denied" || code === "deviceauth_access_denied")
-        throw new CodexAuthError("denied", "你已拒绝此次授权");
+        throw new CodexAuthError("denied", "You denied this authorization");
       if (code === "expired_token" || code === "expired_code")
-        throw new CodexAuthError("expired", "设备码已过期，请重新发起登录");
+        throw new CodexAuthError(
+          "expired",
+          "The device code has expired. Start sign-in again.",
+        );
       if (code === "slow_down" || response.status === 429) {
         interval = Math.min(60000, interval + 5000);
         continue;
@@ -312,7 +343,10 @@ export class CodexAuth {
           typeof body.authorization_code !== "string" ||
           typeof body.code_verifier !== "string"
         )
-          throw new CodexAuthError("invalid_response", "授权响应缺少兑换信息");
+          throw new CodexAuthError(
+            "invalid_response",
+            "The authorization response is missing token exchange information",
+          );
         const result = await this.request(
           `${AUTH}/oauth/token`,
           {
@@ -331,7 +365,7 @@ export class CodexAuth {
         if (!result.response.ok)
           throw new CodexAuthError(
             "reauth_required",
-            `授权兑换失败（${result.response.status}），请重新登录`,
+            `Token exchange failed (${result.response.status}). Sign in again.`,
           );
         return this.saveLogin(result.body, signal, challenge.attempt);
       }
@@ -344,7 +378,7 @@ export class CodexAuth {
         continue;
       throw new CodexAuthError(
         "unavailable",
-        `设备授权失败（${response.status}），请重新登录`,
+        `Device authorization failed (${response.status}). Sign in again.`,
       );
     }
   }
@@ -358,7 +392,10 @@ export class CodexAuth {
         /^[A-Za-z0-9_-]{43,128}$/.test(value),
       )
     )
-      throw new CodexAuthError("invalid_response", "无法生成安全的登录请求");
+      throw new CodexAuthError(
+        "invalid_response",
+        "Unable to generate a secure sign-in request",
+      );
     const attempt = ++this.attempt;
     const url = new URL(`${AUTH}/oauth/authorize`);
     Object.entries({
@@ -388,7 +425,7 @@ export class CodexAuth {
   ): Promise<CodexStatus> {
     this.assert(signal, challenge.attempt);
     if (this.now() >= challenge.expiresAt)
-      throw new CodexAuthError("expired", "登录已超时，请重试");
+      throw new CodexAuthError("expired", "Sign-in timed out. Try again.");
     const code = browserCallbackCode(callback, challenge.state);
     const result = await this.request(
       `${AUTH}/oauth/token`,
@@ -408,7 +445,7 @@ export class CodexAuth {
     if (!result.response.ok)
       throw new CodexAuthError(
         "reauth_required",
-        `授权兑换失败（${result.response.status}），请重新登录`,
+        `Token exchange failed (${result.response.status}). Sign in again.`,
       );
     return this.saveLogin(result.body, signal, challenge.attempt);
   }
@@ -454,7 +491,7 @@ export class CodexAuth {
     } catch {
       throw new CodexAuthError(
         "invalid_response",
-        "本地登录信息无法读取，请退出后重新登录",
+        "Unable to read saved sign-in information. Sign out and sign in again.",
       );
     }
   }
@@ -497,12 +534,12 @@ export class CodexAuth {
           await this.store.remove(STORAGE_KEY);
           throw new CodexAuthError(
             "reauth_required",
-            "ChatGPT 登录已失效，请重新授权",
+            "Your ChatGPT sign-in has expired. Authorize again.",
           );
         }
         throw new CodexAuthError(
           "network",
-          `暂时无法刷新 ChatGPT 登录（${response.status}），请稍后重试`,
+          `Unable to refresh ChatGPT sign-in (${response.status}). Try again later.`,
         );
       }
       const next = parseCredential(body, this.now(), current);
