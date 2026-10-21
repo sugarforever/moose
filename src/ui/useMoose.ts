@@ -15,11 +15,16 @@ import { openMobile, credentials, defaultSettings } from "../platform/open";
 import { loadSkill, chatMessages } from "../generated/runtime";
 import type {
   MobileEngine,
-  ChatMessage,
   ModelSettings,
   SavedCheckpoint,
 } from "../runtime/engine";
 import type { Skill } from "../skills/skills";
+import {
+  chatActivity,
+  toolMessages,
+  type Activity,
+  type ActivityMessage,
+} from "./chat-activity";
 import type { LiveState } from "@earendil-works/pi-durable";
 import { codexAuth } from "../platform/codex";
 import { loginCodexBrowser } from "../platform/codex-browser";
@@ -59,7 +64,8 @@ export function useMoose() {
   const [conversations, setConversations] = useState<
     { id: number; title: string }[]
   >([]);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ActivityMessage[]>([]);
+  const [activity, setActivity] = useState<Activity[]>([]);
   const [partial, setPartial] = useState("");
   const [busy, setBusy] = useState(false);
   const [working, setWorking] = useState(false);
@@ -149,6 +155,7 @@ export function useMoose() {
     setGrants([]);
     setMessages([]);
     setPartial("");
+    setActivity([]);
     setBusy(false);
     void run(async () => {
       const [activeSkills, outbox] = await Promise.all([
@@ -161,10 +168,13 @@ export function useMoose() {
       await runtime.engine.write("activeConversation", conversationId);
       const detach = await runtime.engine.watch(conversationId, (view) => {
         if (disposed) return;
-        const next = chatMessages(view);
+        const next = [...chatMessages(view), ...toolMessages(view)].sort(
+          (a, b) => a.entryId - b.entryId,
+        );
         setMessages(next);
         const live = view.docs["pi.live"] as unknown as LiveState | undefined;
         setBusy(!!live?.run);
+        setActivity(chatActivity(live));
         setPartial(
           live?.generation?.message?.content
             .filter((block) => block.type === "text")
@@ -387,6 +397,7 @@ export function useMoose() {
     conversations,
     messages,
     partial,
+    activity,
     busy,
     working,
     error,
