@@ -1,3 +1,4 @@
+import { acquireBackground, setApprovalWaiting } from "./background";
 import { createExpoWorkspace } from "pi-durable-expo-env";
 import { openDatabaseAsync } from "expo-sqlite";
 import * as SecureStore from "expo-secure-store";
@@ -73,16 +74,29 @@ export async function openMobile() {
           "SELECT value FROM moose_data WHERE key=?",
           `title:${request.conversationId}`,
         );
-        return (
-          (!request.skillId || !!skill) &&
-          approvals.request(
-            request,
-            skill?.name ?? "Moose · Current conversation",
-            title
-              ? (JSON.parse(title.value) as string)
-              : `Conversation ${request.conversationId}`,
-          )
+        const waitKey = `permission-wait:${request.conversationId}`;
+        await database.run(
+          "INSERT OR REPLACE INTO moose_data(key,value) VALUES (?,?)",
+          waitKey,
+          JSON.stringify({
+            skillId: request.skillId,
+            permission: request.permission,
+          }),
         );
+        setApprovalWaiting(true);
+        try {
+          return await ((!request.skillId || !!skill) &&
+            approvals.request(
+              request,
+              skill?.name ?? "Moose · Current conversation",
+              title
+                ? (JSON.parse(title.value) as string)
+                : `Conversation ${request.conversationId}`,
+            ));
+        } finally {
+          setApprovalWaiting(false);
+          await database.run("DELETE FROM moose_data WHERE key=?", waitKey);
+        }
       },
     );
     engine = await MobileEngine.open(
@@ -97,6 +111,7 @@ export async function openMobile() {
         authorize: (...args) => permissions.authorize(...args),
       },
       { shell: !!termuxFactory },
+      acquireBackground,
     );
     const settings = await engine.read<ModelSettings>(
       "settings",

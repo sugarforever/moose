@@ -2,9 +2,13 @@ node_modules/
 .expo/
 dist/
 coverage/
-ios/
-android/
-!modules/moose-updates/android/
+/ios/
+/android/
+modules/**/build/
+modules/**/.cxx/
+vendor/**/build/
+vendor/**/.cxx/
+vendor/**/.gradle/
 .env*
 *.sqlite*
 src/generated/
