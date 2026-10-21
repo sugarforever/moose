@@ -11,3 +11,11 @@
 本轮验证：类型检查与现有 34 项测试通过。iPhone 17 Pro 模拟器检查了现有多轮对话、原生消息操作菜单以及键盘展开布局；菜单验证通过无障碍“消息选项”调用与长按相同的处理函数，选择取消，未实际重新发送。iOS KeyboardAvoidingView 需要传入顶部安全区偏移，避免输入框被键盘遮挡。Android 本轮未做设备验证。
 
 开发构建默认隐藏 Expo 的悬浮工具按钮，避免覆盖历史对话弹层右上角的关闭动作。开发菜单仍可通过模拟器快捷键或摇动手势打开。本次在原来的 iPhone 17 Pro 模拟器中复现重叠，隐藏浮钮后验证历史弹层的打开、关闭及返回对话；类型检查通过，未发送模型请求。
+
+## Execution activity
+
+The chat projects committed tool results and pi.live into compact status rows. Queued/running tools (including nested tools), model retry/deferred responses, thinking, and context compaction have short labels. Thinking content, tool arguments and raw diagnostics are not displayed. Text tool output is collapsed by default and limited to its last 4,000 characters with a truncation marker; it is selectable when expanded. Existing assistant text remains plain text.
+
+Tool results stay at their transcript entry positions after completion or reopening, including failed calls. Live slots that already have a committed result are omitted to prevent duplicate rows. Transient state is cleared when changing conversations; the existing disposed watcher guard rejects late updates. No new event log, persistence format, provider behavior or scheduler is introduced. Nested progress is transient; durable top-level tool results supply the history.
+
+Validation on 2026-10-21: projection regressions plus real Harness/file-tool/SQLite reopen coverage; browser preview of the actual ActivityRow component confirmed collapsed output, expansion and error output. Native compilation and simulator/device interactions were not performed for this change. No real model requests or account authorization were used. Full command results are recorded in the PR.

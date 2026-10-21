@@ -1,3 +1,5 @@
+import { chatActivity, toolMessages } from "../src/ui/chat-activity";
+import type { LiveState } from "@earendil-works/pi-durable";
 import { afterEach, expect, it } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import * as fs from "node:fs/promises";
@@ -135,6 +137,14 @@ it("runs genuine tools through Moose, persists files, isolates conversations and
   expect(
     (await first.agent(engine.context)).tools.map((t) => t.name).sort(),
   ).toEqual(["edit", "read", "workspace_list", "write"]);
+  const observed: string[] = [];
+  const detach = await engine.watch(Number(first.id), (view) => {
+    observed.push(
+      ...chatActivity(view.docs["pi.live"] as unknown as LiveState).map(
+        (row) => row.label,
+      ),
+    );
+  });
   expect(
     (
       await (
@@ -155,6 +165,18 @@ it("runs genuine tools through Moose, persists files, isolates conversations and
   expect((await engine.messages(first.id)).map((m) => m.text)).toEqual([
     "Write, edit and read a note",
     "Saved",
+  ]);
+  await detach();
+  expect(observed).toContain("write · 执行中");
+  expect(
+    toolMessages(await first.context(engine.context)).map(
+      (row) => row.activity.label,
+    ),
+  ).toEqual([
+    "write · 已完成",
+    "edit · 已完成",
+    "read · 已完成",
+    "workspace_list · 已完成",
   ]);
   const checkpoint = await engine.checkpoint(first.id, "File checkpoint");
   const branch = await engine.restoreCheckpoint(checkpoint.id);
@@ -202,6 +224,16 @@ it("runs genuine tools through Moose, persists files, isolates conversations and
   const upgraded = await (
     await engine.conversation(first.id)
   ).agent(engine.context);
+  expect(
+    toolMessages(
+      await (await engine.conversation(first.id)).context(engine.context),
+    ).map((row) => row.activity.label),
+  ).toEqual([
+    "write · 已完成",
+    "edit · 已完成",
+    "read · 已完成",
+    "workspace_list · 已完成",
+  ]);
   expect(upgraded.instructions).not.toContain(
     "No shell, scripts, filesystem tools",
   );
