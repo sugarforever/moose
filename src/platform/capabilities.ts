@@ -57,12 +57,12 @@ export const approvals = {
 };
 export const permissionLabel = (permission: string) =>
   permission.startsWith("http:")
-    ? `读取 ${permission.slice(5)}`
+    ? `Read ${permission.slice(5)}`
     : permission === "database:read"
-      ? "读取此范围的数据库"
+      ? "Read the database in this scope"
       : permission === "database:write"
-        ? "修改此范围的数据库"
-        : "读取和修改跨对话文档";
+        ? "Modify the database in this scope"
+        : "Read and modify documents across conversations";
 export async function openCapabilityDatabase(key: string) {
   const digest = await digestStringAsync(CryptoDigestAlgorithm.SHA256, key);
   const native = await openDatabaseAsync(`moose-skill-${digest}.sqlite`);
@@ -73,7 +73,7 @@ export async function openCapabilityDatabase(key: string) {
 }
 export async function shareArtifact(artifact: Artifact) {
   if (!(await Sharing.isAvailableAsync()))
-    throw new Error("当前设备不支持分享文件");
+    throw new Error("File sharing is not supported on this device");
   const file = new File(
     Paths.cache,
     `moose-${artifact.ref.slice(9)}.${artifact.mime === "text/html" ? "html" : "txt"}`,

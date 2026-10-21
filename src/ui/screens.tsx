@@ -21,6 +21,8 @@ import {
 import { TermuxSettings } from "./TermuxSettings";
 import { permissionLabel } from "../platform/capabilities";
 import type { Moose } from "./useMoose";
+import { AndroidUpdates } from "./updates";
+import type { UpdateController } from "../updates/controller";
 
 export function TasksScreen({ moose }: { moose: Moose }) {
   const [prompt, setPrompt] = useState("");
@@ -33,18 +35,23 @@ export function TasksScreen({ moose }: { moose: Moose }) {
       keyboardShouldPersistTaps="handled"
     >
       <View style={{ gap: 6 }}>
-        <Text style={s.heading}>任务</Text>
+        <Text style={s.heading}>Tasks</Text>
       </View>
       <Card>
         <View style={s.row}>
           <Icon name="repeat" />
-          <Text style={s.subheading}>重复任务</Text>
+          <Text style={s.subheading}>Repeating task</Text>
         </View>
-        <Field label="指令" value={prompt} onChangeText={setPrompt} multiline />
+        <Field
+          label="Instructions"
+          value={prompt}
+          onChangeText={setPrompt}
+          multiline
+        />
         <View style={s.row}>
           <View style={{ flex: 1 }}>
             <Field
-              label="间隔（分钟）"
+              label="Interval (minutes)"
               keyboardType="number-pad"
               value={minutes}
               onChangeText={setMinutes}
@@ -52,16 +59,16 @@ export function TasksScreen({ moose }: { moose: Moose }) {
           </View>
           <View style={{ flex: 1 }}>
             <Field
-              label="次数"
+              label="Count"
               keyboardType="number-pad"
               value={count}
               onChangeText={setCount}
             />
           </View>
         </View>
-        <Caption>仅在前台执行，每次调用模型。</Caption>
+        <Caption>Runs in the foreground. Each run calls the model.</Caption>
         <Button
-          label="创建任务"
+          label="Create task"
           icon="plus"
           busy={creating}
           disabled={!prompt.trim() || !moose.runtime}
@@ -76,28 +83,30 @@ export function TasksScreen({ moose }: { moose: Moose }) {
       {moose.tasks.map((task) => (
         <Card key={task.id}>
           <View style={s.between}>
-            <Text style={s.subheading}>重复任务 #{task.id}</Text>
+            <Text style={s.subheading}>Repeating task #{task.id}</Text>
             <Text style={{ fontSize: 12, color: colors.muted }}>
               {task.status === "terminal"
                 ? task.outcome === "completed"
-                  ? "已完成"
+                  ? "Completed"
                   : task.outcome === "aborted"
-                    ? "已停止"
-                    : "执行失败"
-                : "待执行"}
+                    ? "Stopped"
+                    : "Failed"
+                : "Pending"}
             </Text>
           </View>
           <Text style={{ color: colors.ink, lineHeight: 23 }}>
             {task.input.prompt}
           </Text>
           <Caption>
-            {task.completed} / {task.input.count} 次已完成 · 间隔{" "}
-            {task.input.intervalMs / 60000} 分钟
-            {task.at ? `\n下次：${new Date(task.at).toLocaleString()}` : ""}
+            {task.completed} / {task.input.count} completed · Every{" "}
+            {task.input.intervalMs / 60000} minutes
+            {task.at
+              ? `\nNext: ${new Date(task.at).toLocaleString("en-GB")}`
+              : ""}
           </Caption>
           {task.status !== "terminal" && (
             <Button
-              label="停止重复"
+              label="Stop repeating"
               secondary
               onPress={() => void moose.stopTask(task.id)}
             />
@@ -105,12 +114,12 @@ export function TasksScreen({ moose }: { moose: Moose }) {
         </Card>
       ))}
       <View style={s.between}>
-        <Text style={s.subheading}>检查点</Text>
+        <Text style={s.subheading}>Checkpoints</Text>
         <Text style={{ color: colors.muted }}>{moose.checkpoints.length}</Text>
       </View>
       {moose.checkpoints.length === 0 ? (
         <Card>
-          <Caption>暂无检查点</Caption>
+          <Caption>No checkpoints</Caption>
         </Card>
       ) : (
         moose.checkpoints
@@ -122,11 +131,13 @@ export function TasksScreen({ moose }: { moose: Moose }) {
                 <Icon name="bookmark" />
                 <View style={{ flex: 1 }}>
                   <Text style={s.subheading}>{item.label}</Text>
-                  <Caption>{new Date(item.createdAt).toLocaleString()}</Caption>
+                  <Caption>
+                    {new Date(item.createdAt).toLocaleString("en-GB")}
+                  </Caption>
                 </View>
               </View>
               <Button
-                label="从这里继续"
+                label="Continue from here"
                 secondary
                 icon="git-branch"
                 onPress={() => void moose.restore(item.id)}
@@ -152,7 +163,7 @@ export function SkillsScreen({ moose }: { moose: Moose }) {
       </View>
       <Card>
         <Field
-          label="Skill 链接"
+          label="Skill URL"
           placeholder="https://…"
           value={url}
           onChangeText={setUrl}
@@ -160,9 +171,9 @@ export function SkillsScreen({ moose }: { moose: Moose }) {
           autoCorrect={false}
           keyboardType="url"
         />
-        <Caption>仅加载指令，不执行脚本。</Caption>
+        <Caption>Loads instructions only. Scripts are not run.</Caption>
         <Button
-          label="安装"
+          label="Install"
           icon="download"
           busy={installing}
           disabled={!url.trim() || !moose.runtime}
@@ -173,11 +184,11 @@ export function SkillsScreen({ moose }: { moose: Moose }) {
         />
       </Card>
       <View style={s.between}>
-        <Text style={s.subheading}>已安装</Text>
-        <Caption>{moose.selected.length} 项已启用</Caption>
+        <Text style={s.subheading}>Installed</Text>
+        <Caption>{moose.selected.length} enabled</Caption>
       </View>
       {moose.skills.length === 0 ? (
-        <Caption>暂无 Skill</Caption>
+        <Caption>No skills</Caption>
       ) : (
         moose.skills.map((skill) => (
           <Card key={skill.id}>
@@ -189,7 +200,7 @@ export function SkillsScreen({ moose }: { moose: Moose }) {
                 </Text>
               </View>
               <Switch
-                accessibilityLabel={`启用 ${skill.name}`}
+                accessibilityLabel={`Enable ${skill.name}`}
                 value={moose.selected.includes(skill.id)}
                 onValueChange={() => void moose.toggleSkill(skill.id)}
                 trackColor={{ true: colors.green, false: colors.line }}
@@ -204,12 +215,12 @@ export function SkillsScreen({ moose }: { moose: Moose }) {
                 style={{ minHeight: 44, justifyContent: "center" }}
               >
                 <Text style={s.link}>
-                  {preview === skill.id ? "收起内容" : "查看指令"}
+                  {preview === skill.id ? "Hide content" : "View instructions"}
                 </Text>
               </Pressable>
               <IconButton
                 name="trash-2"
-                label={`卸载 ${skill.name}`}
+                label={`Uninstall ${skill.name}`}
                 onPress={() => void moose.removeSkill(skill.id)}
               />
             </View>
@@ -228,7 +239,13 @@ export function SkillsScreen({ moose }: { moose: Moose }) {
   );
 }
 
-export function SettingsScreen({ moose }: { moose: Moose }) {
+export function SettingsScreen({
+  moose,
+  updates,
+}: {
+  moose: Moose;
+  updates?: UpdateController;
+}) {
   const [provider, setProvider] = useState(moose.settings.provider);
   const [model, setModel] = useState(moose.settings.modelId);
   const [key, setKey] = useState("");
@@ -244,18 +261,21 @@ export function SettingsScreen({ moose }: { moose: Moose }) {
       keyboardShouldPersistTaps="handled"
     >
       <View style={{ gap: 6 }}>
-        <Text style={s.heading}>设置</Text>
+        <Text style={s.heading}>Settings</Text>
       </View>
       <TermuxSettings moose={moose} />
       <Card>
-        <Text style={s.subheading}>当前对话原生工具授权</Text>
+        <Text style={s.subheading}>
+          Native tool access for this conversation
+        </Text>
         {moose.runtime?.executionEnvironment === "termux" && (
           <Caption>
-            这些授权仅约束原生工具，不限制 Termux 命令的网络和文件访问。
+            These permissions apply to native tools. Termux commands retain file
+            and network access.
           </Caption>
         )}
         {moose.grants.length === 0 ? (
-          <Caption>暂无授权</Caption>
+          <Caption>No permissions granted</Caption>
         ) : (
           moose.grants.map((grant) => (
             <View
@@ -265,8 +285,8 @@ export function SettingsScreen({ moose }: { moose: Moose }) {
               <Text style={s.caption}>
                 {grant.skillId
                   ? (moose.skills.find((s) => s.id === grant.skillId)?.name ??
-                    "已卸载 Skill")
-                  : "Moose · 当前对话"}
+                    "Uninstalled skill")
+                  : "Moose · Current conversation"}
               </Text>
               <Caption>{permissionLabel(grant.permission)}</Caption>
             </View>
@@ -274,13 +294,17 @@ export function SettingsScreen({ moose }: { moose: Moose }) {
         )}
         {moose.grants.length > 0 && (
           <Button
-            label="撤销全部授权"
+            label="Revoke all access"
             secondary
             onPress={() => void moose.revokeGrants()}
           />
         )}
       </Card>
       {provider === "openai-codex" && <ChatGPTConnection moose={moose} />}
+      <AndroidUpdates
+        controller={updates}
+        blocked={moose.busy || moose.working}
+      />
       <Card>
         <View style={s.row}>
           {["openai", "anthropic", "openai-codex"].map((id) => (
@@ -336,7 +360,7 @@ export function SettingsScreen({ moose }: { moose: Moose }) {
           ))}
         </View>
         <Field
-          label="模型"
+          label="Model"
           value={model}
           onChangeText={setModel}
           autoCapitalize="none"
@@ -347,7 +371,9 @@ export function SettingsScreen({ moose }: { moose: Moose }) {
           onPress={() => setShowModels(!showModels)}
           style={{ minHeight: 44, justifyContent: "center" }}
         >
-          <Text style={s.link}>{showModels ? "收起模型列表" : "选择模型"}</Text>
+          <Text style={s.link}>
+            {showModels ? "Hide model list" : "Choose model"}
+          </Text>
         </Pressable>
         {showModels && (
           <View style={{ gap: 2, maxHeight: 240 }}>
@@ -380,7 +406,7 @@ export function SettingsScreen({ moose }: { moose: Moose }) {
                 onPress={() => setModel("")}
                 style={{ paddingVertical: 14 }}
               >
-                <Text style={s.link}>清除筛选，显示所有模型</Text>
+                <Text style={s.link}>Clear filters and show all models</Text>
               </Pressable>
             </ScrollView>
           </View>
@@ -390,8 +416,8 @@ export function SettingsScreen({ moose }: { moose: Moose }) {
             label="API Key"
             placeholder={
               provider === moose.settings.provider && moose.hasCredentials
-                ? "已保存，留空以继续使用"
-                : "输入你的 API Key"
+                ? "Saved. Leave blank to keep using it."
+                : "Enter your API key"
             }
             value={key}
             onChangeText={setKey}
@@ -400,9 +426,11 @@ export function SettingsScreen({ moose }: { moose: Moose }) {
             autoCorrect={false}
           />
         )}
-        {provider !== "openai-codex" && <Caption>API 单独计费</Caption>}
+        {provider !== "openai-codex" && (
+          <Caption>API usage is billed separately</Caption>
+        )}
         <Button
-          label={"保存"}
+          label={"Save"}
           icon="check"
           busy={saving}
           disabled={
@@ -425,7 +453,7 @@ export function SettingsScreen({ moose }: { moose: Moose }) {
             <View style={s.between}>
               <View style={s.row}>
                 <Icon name="check-circle" size={15} color={colors.green} />
-                <Caption>{moose.settings.provider} 密钥已保存</Caption>
+                <Caption>{moose.settings.provider} API key saved</Caption>
               </View>
               <Pressable
                 accessibilityRole="button"
@@ -433,7 +461,7 @@ export function SettingsScreen({ moose }: { moose: Moose }) {
                 style={{ minHeight: 44, justifyContent: "center" }}
               >
                 <Text style={{ color: colors.danger, fontSize: 12 }}>
-                  移除密钥
+                  Remove API key
                 </Text>
               </Pressable>
             </View>
@@ -460,14 +488,14 @@ function ChatGPTConnection({ moose }: { moose: Moose }) {
   return (
     <Card>
       <View style={s.row}>
-        <Text style={s.subheading}>ChatGPT · 实验性</Text>
+        <Text style={s.subheading}>ChatGPT · Experimental</Text>
       </View>
       {status.connected && (
         <View style={{ gap: 8 }}>
           <View style={s.row}>
             <Icon name="check-circle" size={17} />
             <Text style={{ color: colors.green, fontWeight: "600" }}>
-              已登录
+              Signed in
             </Text>
           </View>
         </View>
@@ -481,10 +509,10 @@ function ChatGPTConnection({ moose }: { moose: Moose }) {
             backgroundColor: colors.soft,
           }}
         >
-          <Caption>在授权页输入设备码</Caption>
+          <Caption>Enter the device code on the authorization page</Caption>
           <Text
             selectable
-            accessibilityLabel={`设备码 ${login.challenge.userCode}`}
+            accessibilityLabel={`Device code ${login.challenge.userCode}`}
             style={{
               fontSize: 27,
               fontWeight: "700",
@@ -497,11 +525,11 @@ function ChatGPTConnection({ moose }: { moose: Moose }) {
           </Text>
           <Caption>
             {seconds > 0
-              ? `剩余 ${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒，正在等待授权。`
-              : "设备码已过期，请重新发起。"}
+              ? `Waiting for authorization. ${Math.floor(seconds / 60)}m ${seconds % 60}s remaining.`
+              : "The device code expired. Start again."}
           </Caption>
           <Button
-            label="打开授权页"
+            label="Open authorization page"
             icon="external-link"
             onPress={() =>
               void moose.run(() =>
@@ -520,11 +548,11 @@ function ChatGPTConnection({ moose }: { moose: Moose }) {
         </Text>
       )}
       {login.phase === "waiting" && login.method === "browser" && (
-        <Caption>等待浏览器授权…</Caption>
+        <Caption>Waiting for browser authorization…</Caption>
       )}
       {!active && (
         <Button
-          label={status.connected ? "重新登录" : "登录 ChatGPT"}
+          label={status.connected ? "Sign in again" : "Sign in to ChatGPT"}
           icon="external-link"
           disabled={!moose.runtime}
           onPress={() => void moose.startChatGPTLogin("browser")}
@@ -532,7 +560,11 @@ function ChatGPTConnection({ moose }: { moose: Moose }) {
       )}
       {!active && (
         <Button
-          label={status.connected ? "设备码登录" : "设备码登录"}
+          label={
+            status.connected
+              ? "Sign in with device code"
+              : "Sign in with device code"
+          }
           secondary
           disabled={!moose.runtime}
           onPress={() => void moose.startChatGPTLogin()}
@@ -541,16 +573,22 @@ function ChatGPTConnection({ moose }: { moose: Moose }) {
       {login.phase === "requesting" && (
         <View style={s.row}>
           <Caption>
-            {login.method === "browser" ? "正在打开登录…" : "正在申请设备码"}
+            {login.method === "browser"
+              ? "Opening sign-in…"
+              : "Requesting device code"}
           </Caption>
         </View>
       )}
       {active && (
-        <Button label="取消登录" secondary onPress={moose.cancelChatGPTLogin} />
+        <Button
+          label="Cancel sign-in"
+          secondary
+          onPress={moose.cancelChatGPTLogin}
+        />
       )}
       {status.connected && !active && (
         <Button
-          label="退出登录"
+          label="Sign out"
           secondary
           icon="log-out"
           onPress={() => void moose.logoutChatGPT()}
@@ -565,7 +603,7 @@ function ChatGPTConnection({ moose }: { moose: Moose }) {
         }
         style={{ minHeight: 44, justifyContent: "center" }}
       >
-        <Text style={s.link}>登录帮助</Text>
+        <Text style={s.link}>Sign-in help</Text>
       </Pressable>
     </Card>
   );

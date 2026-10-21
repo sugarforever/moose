@@ -23,6 +23,7 @@ import {
 import { StatusBar } from "expo-status-bar";
 import { setToolsButtonVisible } from "expo-dev-client";
 import { useMoose } from "./src/ui/useMoose";
+import { useAndroidUpdates } from "./src/ui/updates";
 import { TasksScreen, SkillsScreen, SettingsScreen } from "./src/ui/screens";
 import {
   Button,
@@ -40,10 +41,10 @@ import { ActivityRow } from "./src/ui/ActivityRow";
 
 type Tab = "chat" | "tasks" | "skills" | "settings";
 const tabs: { id: Tab; label: string; icon: IconName }[] = [
-  { id: "chat", label: "对话", icon: "message-circle" },
-  { id: "tasks", label: "任务", icon: "layers" },
+  { id: "chat", label: "Chat", icon: "message-circle" },
+  { id: "tasks", label: "Tasks", icon: "layers" },
   { id: "skills", label: "Skills", icon: "grid" },
-  { id: "settings", label: "设置", icon: "sliders" },
+  { id: "settings", label: "Settings", icon: "sliders" },
 ];
 
 export default function App() {
@@ -59,6 +60,7 @@ export default function App() {
 }
 function MooseApp() {
   const moose = useMoose();
+  const updates = useAndroidUpdates();
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<Tab>("chat");
   const [text, setText] = useState("");
@@ -69,7 +71,7 @@ function MooseApp() {
   const list = useRef<FlatList<ActivityMessage>>(null);
   const title =
     moose.conversations.find((item) => item.id === moose.conversationId)
-      ?.title ?? "新的对话";
+      ?.title ?? "New conversation";
   useEffect(() => {
     const show = Keyboard.addListener(
       Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
@@ -101,15 +103,15 @@ function MooseApp() {
     };
     if (Platform.OS === "ios") {
       ActionSheetIOS.showActionSheetWithOptions(
-        { options: ["重新发送", "取消"], cancelButtonIndex: 1 },
+        { options: ["Resend", "Cancel"], cancelButtonIndex: 1 },
         (index) => {
           if (index === 0) resend();
         },
       );
     } else {
-      Alert.alert("消息", undefined, [
-        { text: "重新发送", onPress: resend },
-        { text: "取消", style: "cancel" },
+      Alert.alert("Message", undefined, [
+        { text: "Resend", onPress: resend },
+        { text: "Cancel", style: "cancel" },
       ]);
     }
   };
@@ -124,7 +126,7 @@ function MooseApp() {
     if (Platform.OS === "ios") {
       ActionSheetIOS.showActionSheetWithOptions(
         {
-          options: ["保存检查点", "文件与报告", "取消"],
+          options: ["Save checkpoint", "Files and reports", "Cancel"],
           cancelButtonIndex: 2,
           disabledButtonIndices: moose.busy ? [0] : [],
         },
@@ -134,10 +136,10 @@ function MooseApp() {
         },
       );
     } else {
-      Alert.alert("对话", undefined, [
-        ...(!moose.busy ? [{ text: "保存检查点", onPress: save }] : []),
-        { text: "文件与报告", onPress: artifacts },
-        { text: "取消", style: "cancel" },
+      Alert.alert("Chat", undefined, [
+        ...(!moose.busy ? [{ text: "Save checkpoint", onPress: save }] : []),
+        { text: "Files and reports", onPress: artifacts },
+        { text: "Cancel", style: "cancel" },
       ]);
     }
   };
@@ -177,7 +179,7 @@ function MooseApp() {
             <>
               <IconButton
                 name="clock"
-                label="历史对话"
+                label="Chat history"
                 disabled={moose.working}
                 onPress={() => {
                   Keyboard.dismiss();
@@ -188,9 +190,9 @@ function MooseApp() {
                 <Text numberOfLines={1} style={a.conversationTitle}>
                   {moose.messages.length
                     ? title === "New conversation"
-                      ? "新的对话"
+                      ? "New conversation"
                       : title
-                    : "新对话"}
+                    : "New conversation"}
                 </Text>
                 {moose.hasCredentials && (
                   <Text numberOfLines={1} style={a.meta}>
@@ -200,14 +202,14 @@ function MooseApp() {
               </View>
               <IconButton
                 name="plus"
-                label="新建对话"
+                label="New conversation"
                 disabled={!moose.runtime || moose.working}
                 onPress={() => void moose.newChat()}
               />
               {moose.messages.length > 0 && (
                 <IconButton
                   name="more-horizontal"
-                  label="对话选项"
+                  label="Conversation options"
                   onPress={conversationMenu}
                 />
               )}
@@ -216,6 +218,17 @@ function MooseApp() {
             <Text style={a.brandName}>moose</Text>
           )}
         </View>
+        {!!updates.state?.update && tab !== "settings" && (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setTab("settings")}
+            style={{ paddingHorizontal: 20, paddingVertical: 10 }}
+          >
+            <Text style={s.link}>
+              Version {updates.state.update.version} available. View update
+            </Text>
+          </Pressable>
+        )}
         {!!moose.error && (
           <View style={a.error}>
             <Icon name="alert-circle" size={16} color={colors.danger} />
@@ -225,14 +238,14 @@ function MooseApp() {
             {!moose.runtime && (
               <Button
                 secondary
-                label="重试打开"
+                label="Retry opening"
                 busy={moose.working}
                 onPress={() => void moose.retryRuntime()}
               />
             )}
             <IconButton
               name="x"
-              label="关闭提示"
+              label="Dismiss"
               onPress={() => {
                 if (moose.runtime) moose.setError("");
               }}
@@ -295,7 +308,7 @@ function MooseApp() {
                 !moose.hasCredentials ? (
                   <View style={{ alignItems: "center" }}>
                     <Button
-                      label="连接模型"
+                      label="Connect model"
                       onPress={() => setTab("settings")}
                     />
                   </View>
@@ -313,14 +326,14 @@ function MooseApp() {
                     }
                     delayLongPress={400}
                     accessible={item.role === "user"}
-                    accessibilityLabel={`${item.role === "user" ? "你" : "Moose"}：${item.text}`}
+                    accessibilityLabel={`${item.role === "user" ? "You" : "Moose"}: ${item.text}`}
                     accessibilityActions={
                       item.role === "user" &&
                       !moose.busy &&
                       !moose.working &&
                       !moose.pending &&
                       moose.hasCredentials
-                        ? [{ name: "messageMenu", label: "消息选项" }]
+                        ? [{ name: "messageMenu", label: "Message options" }]
                         : undefined
                     }
                     onAccessibilityAction={({ nativeEvent }) => {
@@ -339,7 +352,7 @@ function MooseApp() {
                         item.error && { color: colors.danger },
                       ]}
                     >
-                      {item.text || (item.error ? "回答中断" : "…")}
+                      {item.text || (item.error ? "Response interrupted" : "…")}
                     </Text>
                   </Pressable>
                 )
@@ -364,7 +377,7 @@ function MooseApp() {
             />
             {moose.pending && !moose.working && (
               <View style={a.retry}>
-                <Caption>有一条待确认的请求</Caption>
+                <Caption>A request needs confirmation</Caption>
                 <Pressable
                   accessibilityRole="button"
                   onPress={() =>
@@ -372,17 +385,17 @@ function MooseApp() {
                   }
                   style={{ padding: 10 }}
                 >
-                  <Text style={s.link}>重试</Text>
+                  <Text style={s.link}>Retry</Text>
                 </Pressable>
               </View>
             )}
             <View style={a.composerArea}>
               <View style={a.composer}>
                 <TextInput
-                  accessibilityLabel="消息"
+                  accessibilityLabel="Message"
                   value={text}
                   onChangeText={setText}
-                  placeholder="消息"
+                  placeholder="Message"
                   placeholderTextColor="#929C95"
                   multiline
                   style={a.input}
@@ -391,7 +404,7 @@ function MooseApp() {
                 {moose.busy ? (
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel="停止回答"
+                    accessibilityLabel="Stop response"
                     onPress={() => void moose.stop()}
                     style={a.send}
                   >
@@ -400,7 +413,7 @@ function MooseApp() {
                 ) : (
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel="发送消息"
+                    accessibilityLabel="Send message"
                     disabled={!canSubmit}
                     onPress={submit}
                     style={[
@@ -421,7 +434,7 @@ function MooseApp() {
         ) : tab === "skills" ? (
           <SkillsScreen moose={moose} />
         ) : (
-          <SettingsScreen moose={moose} />
+          <SettingsScreen moose={moose} updates={updates.controller} />
         )}
         {!keyboardVisible && (
           <View style={a.tabs}>
@@ -469,10 +482,10 @@ function MooseApp() {
         >
           <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
             <View style={[s.between, { padding: 20 }]}>
-              <Text style={s.heading}>历史对话</Text>
+              <Text style={s.heading}>Chat history</Text>
               <IconButton
                 name="x"
-                label="关闭历史对话"
+                label="Close chat history"
                 onPress={() => setHistory(false)}
               />
             </View>
@@ -496,7 +509,7 @@ function MooseApp() {
                   <Icon name="message-circle" />
                   <Text style={{ color: colors.ink, flex: 1 }}>
                     {chat.title === "New conversation"
-                      ? "新的对话"
+                      ? "New conversation"
                       : chat.title}
                   </Text>
                   <Icon name="chevron-right" size={16} />

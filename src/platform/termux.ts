@@ -34,9 +34,13 @@ type Bridge = {
   openTermux(): Promise<void>;
 };
 function native(): Bridge {
-  if (Platform.OS !== "android") throw new Error("Termux 仅支持 Android");
+  if (Platform.OS !== "android")
+    throw new Error("Termux is only supported on Android");
   const bridge = requireOptionalNativeModule<Bridge>("MooseTermux");
-  if (!bridge) throw new Error("请安装包含 Termux 自动配置模块的新版 APK");
+  if (!bridge)
+    throw new Error(
+      "Install a newer APK that includes the Termux setup module",
+    );
   return bridge;
 }
 let serial: Promise<unknown> = Promise.resolve();
@@ -68,13 +72,16 @@ export const termux = {
     native();
     const granted = await PermissionsAndroid.request(PERMISSION);
     if (granted !== PermissionsAndroid.RESULTS.GRANTED)
-      throw new Error("请在 Moose 的系统应用权限中允许在 Termux 中运行命令");
+      throw new Error(
+        "Allow Moose to run commands in Termux in system app permissions",
+      );
   },
   openSettings: () => native().openSettings(),
   openTermux: () => native().openTermux(),
   select: (enabled: boolean) =>
     exclusive(async () => {
-      if (Platform.OS !== "android") throw new Error("Termux 仅支持 Android");
+      if (Platform.OS !== "android")
+        throw new Error("Termux is only supported on Android");
       await SecureStore.setItemAsync(ENABLED, enabled ? "yes" : "no");
     }),
   enable: (
@@ -83,7 +90,8 @@ export const termux = {
     onPhase: (phase: SetupPhase) => void,
   ) =>
     exclusive(async () => {
-      if (Platform.OS !== "android") throw new Error("Termux 仅支持 Android");
+      if (Platform.OS !== "android")
+        throw new Error("Termux is only supported on Android");
       const previous = await SecureStore.getItemAsync(ENABLED);
       if (enabled) {
         const seed = await readSeed();
@@ -107,7 +115,10 @@ export const termux = {
               context,
             );
             if (!info.ok || info.value.protocol !== 1 || !info.value.buildHash)
-              return { kind: "incompatible", message: "服务版本无法识别" };
+              return {
+                kind: "incompatible",
+                message: "Unrecognized service version",
+              };
             const env = new TermuxEnvironment("connection-check", rpc);
             const connected = await env.connect(context);
             if (!connected.ok) throw connected.error;

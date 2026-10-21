@@ -48,6 +48,12 @@ After a successful build, download `moose-android-test-<run-number>` from the ru
 
 The APK uses the generated Expo project's default test signing key and is intended for testing. Public distribution requires a separate long-term signing key. Changing signing keys may require uninstalling the old test build, which deletes local conversations and files. The iOS job is explicitly skipped with `if: false`; it does not build an IPA or upload to TestFlight.
 
+## Android in-app updates
+
+Android builds with the updater check GitHub Releases on startup and when returning to the foreground, with at least six hours between automatic checks. In Settings, **App updates** supports manual checks, release notes, downloads, and cancellation. The app verifies the APK's SHA-256, package name, signing certificate, and build number before opening Android's installation confirmation. You may need to allow Moose to install apps. Installation and restart are never automatic.
+
+Update releases require an APK and the matching `moose-update.json`. The tag workflow publishes both, using the tag for the version name and the workflow run number for Android `versionCode`. Existing users must manually install one build containing the updater. Test signing is retained; production signing migration is out of scope. iOS does not display this entry, and TestFlight and OTA are not integrated. See [Android updates](docs/android-updates.md) for the design and verification limits.
+
 ## Connect a model
 
 Open **Settings**, select a provider using its brand icon, choose a model, and save. OpenAI uses its wordmark, Anthropic uses its AI mark, and ChatGPT uses its knot logo.
@@ -61,7 +67,7 @@ OpenAI and Anthropic each require their own API key. API usage is billed separat
 Selecting ChatGPT provides two sign-in methods:
 
 - **Sign in to ChatGPT**: Complete sign-in in the official browser page. The app temporarily listens on `127.0.0.1:1455` for the OAuth callback, validates PKCE and state, and exchanges the authorization code for tokens.
-- **Device code sign-in**: Obtain a device code, open the [official authorization page](https://auth.openai.com/codex/device) in a phone or desktop browser, sign in, and enter the code. Your account or workspace must permit device authorization.
+- **Sign in with device code**: Obtain a device code, open the [official authorization page](https://auth.openai.com/codex/device) in a phone or desktop browser, sign in, and enter the code. Your account or workspace must permit device authorization.
 
 Save the ChatGPT connection after authorization. Tokens are stored through SecureStore and refreshed automatically. You can cancel sign-in or sign out. Inference uses a separate Codex SSE channel; failures do not automatically switch to API-key billing. Account eligibility, quotas, and model access are determined by the provider.
 
@@ -97,7 +103,7 @@ First-time setup still requires these steps:
 
 1. Install a new Moose APK containing the native setup module. Older APKs and Expo Go do not include it; developers must rebuild the native client.
 2. Install and open Termux once. Wait for initialization to finish and a command prompt to appear.
-3. Open Moose → **Settings** → **Execution environment**, tap **Authorize command execution**, and allow commands to run in Termux. If no system prompt appears, or you previously denied permission, tap **Open system settings** and allow it under Moose's app permissions / other permissions.
+3. Open Moose → **Settings** → **Execution environment**, tap **Allow command execution**, and allow commands to run in Termux. If no system prompt appears, or you previously denied permission, tap **Open system settings** and allow it under Moose's app permissions / other permissions.
 4. On the same page, long-press to copy the one-time configuration command, tap **Open Termux**, paste and run it, then return to Moose. The complete command is:
 
 ```sh
@@ -105,9 +111,9 @@ mkdir -p ~/.termux && printf '\nallow-external-apps = true\n' >> ~/.termux/termu
 ```
 
 5. Tap **Set up and connect Termux**. Keep Moose in the foreground with network access until checks, installation, and connection finish. The initial Termux package download may take several minutes. On success, Moose shows that Termux is connected and switches the current environment to Termux without restarting.
-6. Tap **运行自检（不调用模型）** (run self-test without a model). It checks signed communication, temporary file writes/reads, and bash in a reserved diagnostic workspace, then removes its temporary directory. It does not use model credentials or change conversation files. A passing self-test checks this execution path at that time; it does not guarantee background availability.
+6. Tap **Run self-test (no model)**. It checks signed communication, temporary file writes/reads, and bash in a reserved diagnostic workspace, then removes its temporary directory. It does not use model credentials or change conversation files. A passing self-test checks this execution path at that time; it does not guarantee background availability.
 
-The selected environment is separate from the most recent communication result and timestamp. **查看诊断记录** shows up to 40 session-only metadata records that can be selected and copied; restarting Moose clears them. Records contain operation, local correlation number, result, time and duration, without paths, commands, content or credentials. A file-not-found response means the service responded; it is not a connection failure. Timeouts, calling-task cancellation and transport interruption are reported separately; an unexplained native cancellation is not attributed to the user or Android without evidence.
+The selected environment is separate from the most recent communication result and timestamp. **View diagnostics** shows up to 40 session-only metadata records that can be selected and copied; restarting Moose clears them. Records contain operation, local correlation number, result, time and duration, without paths, commands, content or credentials. A file-not-found response means the service responded; it is not a connection failure. Timeouts, calling-task cancellation and transport interruption are reported separately; an unexplained native cancellation is not attributed to the user or Android without evidence.
 
 After restarting the phone or after Android terminates Termux, tap **Check or repair connection** in Moose Settings. Use **Use local files** to return to the local environment. Finish or stop active responses, pending submissions, and recurring tasks before switching. Switching does not migrate files or delete native databases or historical reports.
 

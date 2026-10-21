@@ -22,7 +22,7 @@ export function toolMessages(
   return view.entries.flatMap((entry) =>
     (entry.model ?? []).flatMap((message) => {
       if (message.role !== "toolResult") return [];
-      const label = `${message.toolName} · ${message.isError ? "失败" : "已完成"}`;
+      const label = `${message.toolName} · ${message.isError ? "Failed" : "Completed"}`;
       return [
         {
           entryId: Number(entry.id),
@@ -51,12 +51,18 @@ export function chatActivity(live?: LiveState): Activity[] {
   for (const compaction of live?.compactions ?? []) {
     rows.push({
       id: `compact:${compaction.taskId}`,
-      label: compaction.retry ? "等待重试整理上下文" : "整理上下文",
+      label: compaction.retry
+        ? "Waiting to retry context compaction"
+        : "Compacting context",
       active: true,
     });
   }
   if (live?.compactionFailure)
-    rows.push({ id: "compaction-error", label: "上下文整理失败", error: true });
+    rows.push({
+      id: "compaction-error",
+      label: "Context compaction failed",
+      error: true,
+    });
   if (!live?.run) return rows;
   for (const slot of [...(live.tools ?? []), ...(live.nestedTools ?? [])]) {
     if (slot.status === "done" && "entry" in slot && slot.entry !== undefined)
@@ -67,14 +73,14 @@ export function chatActivity(live?: LiveState): Activity[] {
       (nested ? slot.summary?.isError !== false : true);
     const state =
       slot.status === "pending"
-        ? "等待中"
+        ? "Pending"
         : slot.status === "running"
-          ? "执行中"
+          ? "Running"
           : error
             ? nested && slot.summary
-              ? "失败"
-              : "中断"
-            : "已完成";
+              ? "Failed"
+              : "Interrupted"
+            : "Completed";
     rows.push({
       id: `tool:${slot.callId}`,
       label: `${slot.name} · ${state}`,
@@ -89,19 +95,19 @@ export function chatActivity(live?: LiveState): Activity[] {
   if (generation?.retry)
     rows.push({
       id: "generation",
-      label: `等待重试 · 第 ${generation.attempt} 次尝试`,
+      label: `Retrying · Attempt ${generation.attempt}`,
       active: true,
     });
   else if (generation?.deferred)
-    rows.push({ id: "generation", label: "等待模型响应", active: true });
+    rows.push({ id: "generation", label: "Waiting for model", active: true });
   else if (!rows.some((row) => row.active)) {
     const content = generation?.message?.content ?? [];
     if (!content.some((block) => block.type === "text" && block.text)) {
       rows.push({
         id: "generation",
         label: content.some((block) => block.type === "thinking")
-          ? "思考中"
-          : "等待回复",
+          ? "Thinking"
+          : "Waiting for response",
         active: true,
       });
     }

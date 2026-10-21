@@ -211,7 +211,7 @@ it("blocks environment switching until active repeat jobs are stopped", async ()
   const chat = await engine.newConversation();
   const task = await engine.repeat(chat.id, "repeat", 60000, 2);
   await expect(engine.assertEnvironmentSwitchIdle()).rejects.toThrow(
-    "重复任务",
+    "repeating task",
   );
   await engine.stopTask(task);
   await until(

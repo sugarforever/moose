@@ -26,7 +26,7 @@ export const credentials = {
       ? (await codexAuth.status()).connected
       : !!(await SecureStore.getItemAsync(keyName(provider))),
   set: async (provider: string, key: string) => {
-    if (!key.trim()) throw new Error("请输入 API Key");
+    if (!key.trim()) throw new Error("Enter an API key");
     await SecureStore.setItemAsync(keyName(provider), key.trim(), {
       keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
     });
@@ -77,10 +77,10 @@ export async function openMobile() {
           (!request.skillId || !!skill) &&
           approvals.request(
             request,
-            skill?.name ?? "Moose · 当前对话",
+            skill?.name ?? "Moose · Current conversation",
             title
               ? (JSON.parse(title.value) as string)
-              : `对话 ${request.conversationId}`,
+              : `Conversation ${request.conversationId}`,
           )
         );
       },
@@ -121,7 +121,7 @@ export async function openMobile() {
       } catch {}
       throw new AggregateError(
         [error, cleanup],
-        "初始化失败，运行时资源清理也失败，请重新打开应用",
+        "Initialization and runtime cleanup failed. Reopen the app.",
       );
     }
     throw error;

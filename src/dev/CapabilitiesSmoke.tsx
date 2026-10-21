@@ -63,7 +63,7 @@ export function CapabilitiesSmokeApp() {
                   permission: "http:https://example.com",
                   signal: new AbortController().signal,
                 },
-                "Moose · 当前对话",
+                "Moose · Current conversation",
                 "Native scope smoke",
               )
               .then((allow) =>

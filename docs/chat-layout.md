@@ -1,16 +1,16 @@
-# 紧凑对话界面
+# Compact chat UI
 
-采用单行导航、紧凑用户气泡、无卡片边框的回答，去除重复角色名称、品牌行、常驻重新运行和独立会话信息栏。导航保留历史、新对话；检查点进入更多菜单，模型名称为紧凑副标题。
+Use single-row navigation, compact user bubbles, and answers without card borders. Remove repeated role names, branding rows, persistent rerun controls, and the separate conversation information bar. Keep history and new conversation actions in navigation; move checkpoints into the more menu and use the model name as a compact subtitle.
 
-长按已发送的用户消息，弹出系统操作菜单，选择重新发送。菜单针对所选消息，不只针对最后一条；执行中、未连接模型时不允许重新发送。保留无障碍操作入口。不会在界面验证时实际发送用户消息。
+Long-press a sent user message to open the system action menu and choose resend. The menu acts on the selected message, not just the last one; resending is unavailable during execution or without a connected model. Preserve an accessibility action entry point. UI validation must not actually send user messages.
 
-输入区使用系统键盘避让，键盘展开时隐藏底部标签栏并去掉额外底部安全区，收起后恢复。点击区域不小于 44 点，文字支持系统字号。列表仅在用户位于底部时跟随新内容，避免打断阅读。
+The composer uses system keyboard avoidance. Hide the bottom tab bar and remove extra bottom safe-area spacing while the keyboard is open; restore them when it closes. Tap targets must be at least 44 points, and text must support system font sizes. Follow new content only when the user is at the bottom of the list, so reading is not interrupted.
 
-参考：[Apple Context menus](https://developer.apple.com/design/human-interface-guidelines/context-menus)、[Apple Layout](https://developer.apple.com/design/human-interface-guidelines/layout)。验收：模拟器检查已有消息布局、长按菜单、键盘显示与收起，不触发真实模型请求；运行类型检查和现有测试。
+References: [Apple Context menus](https://developer.apple.com/design/human-interface-guidelines/context-menus), [Apple Layout](https://developer.apple.com/design/human-interface-guidelines/layout). Acceptance: inspect existing message layout, the long-press menu, and keyboard opening/closing in the simulator without real model requests; run type checking and existing tests.
 
-本轮验证：类型检查与现有 34 项测试通过。iPhone 17 Pro 模拟器检查了现有多轮对话、原生消息操作菜单以及键盘展开布局；菜单验证通过无障碍“消息选项”调用与长按相同的处理函数，选择取消，未实际重新发送。iOS KeyboardAvoidingView 需要传入顶部安全区偏移，避免输入框被键盘遮挡。Android 本轮未做设备验证。
+Validation for this iteration: type checking and all 34 existing tests passed. The iPhone 17 Pro simulator was used to inspect an existing multi-turn conversation, the native message action menu, and the expanded keyboard layout. Menu validation used the accessibility “Message options” action, which invokes the same handler as long-press, and selected cancel without resending. iOS KeyboardAvoidingView needs the top safe-area offset to keep the composer above the keyboard. Android device validation was not performed in this iteration.
 
-开发构建默认隐藏 Expo 的悬浮工具按钮，避免覆盖历史对话弹层右上角的关闭动作。开发菜单仍可通过模拟器快捷键或摇动手势打开。本次在原来的 iPhone 17 Pro 模拟器中复现重叠，隐藏浮钮后验证历史弹层的打开、关闭及返回对话；类型检查通过，未发送模型请求。
+Development builds hide Expo's floating tools button by default so it does not cover the close action at the top right of the conversation history sheet. The development menu remains available through simulator shortcuts or the shake gesture. The overlap was reproduced in the existing iPhone 17 Pro simulator; after hiding the button, opening and closing history and returning to chat were verified. Type checking passed; no model requests were sent.
 
 ## Execution activity
 
