@@ -18,6 +18,8 @@ import {
   colors,
   s,
 } from "./kit";
+import { TermuxSettings } from "./TermuxSettings";
+import { permissionLabel } from "../platform/capabilities";
 import type { Moose } from "./useMoose";
 
 export function TasksScreen({ moose }: { moose: Moose }) {
@@ -233,6 +235,9 @@ export function SettingsScreen({ moose }: { moose: Moose }) {
   const [saving, setSaving] = useState(false);
   const [showModels, setShowModels] = useState(false);
   const models = moose.runtime?.models.getModels(provider) ?? [];
+  useEffect(() => {
+    void moose.refreshGrants();
+  }, [moose.runtime, moose.conversationId]);
   return (
     <ScrollView
       contentContainerStyle={s.page}
@@ -241,6 +246,40 @@ export function SettingsScreen({ moose }: { moose: Moose }) {
       <View style={{ gap: 6 }}>
         <Text style={s.heading}>设置</Text>
       </View>
+      <TermuxSettings moose={moose} />
+      <Card>
+        <Text style={s.subheading}>当前对话原生工具授权</Text>
+        {moose.runtime?.executionEnvironment === "termux" && (
+          <Caption>
+            这些授权仅约束原生工具，不限制 Termux 命令的网络和文件访问。
+          </Caption>
+        )}
+        {moose.grants.length === 0 ? (
+          <Caption>暂无授权</Caption>
+        ) : (
+          moose.grants.map((grant) => (
+            <View
+              key={`${grant.skillId}:${grant.permission}`}
+              style={{ gap: 4 }}
+            >
+              <Text style={s.caption}>
+                {grant.skillId
+                  ? (moose.skills.find((s) => s.id === grant.skillId)?.name ??
+                    "已卸载 Skill")
+                  : "Moose · 当前对话"}
+              </Text>
+              <Caption>{permissionLabel(grant.permission)}</Caption>
+            </View>
+          ))
+        )}
+        {moose.grants.length > 0 && (
+          <Button
+            label="撤销全部授权"
+            secondary
+            onPress={() => void moose.revokeGrants()}
+          />
+        )}
+      </Card>
       {provider === "openai-codex" && <ChatGPTConnection moose={moose} />}
       <Card>
         <View style={s.row}>

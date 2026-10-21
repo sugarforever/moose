@@ -102,23 +102,27 @@ export async function loadSkill(
 
 const legacyPreamble =
   "You are Moose, a helpful mobile assistant. Reply in the user’s language. Skills provide instructions only. No shell, scripts, filesystem tools or external skill resources are available. Never claim to have executed them.";
-const mobilePreamble =
+const previousMobilePreamble =
   "You are Moose, a helpful mobile assistant. Reply in the user’s language. Skills provide instructions only. Use only tools exposed in this conversation. Shell, script execution and external Skill resource loading are unavailable. Never claim to have executed unavailable tools.";
-const shellPreamble =
+const previousNativePreamble =
+  "You are Moose, a helpful mobile assistant. Reply in the user’s language. Skills provide instructions only. Use only tools exposed in this conversation. Shell and script execution are unavailable. Read Skill resources only through available resource tools. Never claim to have executed unavailable tools.";
+const previousIshPreamble =
   "You are Moose, a helpful mobile assistant. Reply in the user’s language. Skills provide instructions only. Use only tools exposed in this conversation. The local iSH guest provides a POSIX shell; network access and external Skill resource loading are unavailable. Never claim to have executed unavailable tools.";
-export function upgradeSkillPrompt(prompt: string, shell = false) {
-  const previous = [legacyPreamble, mobilePreamble, shellPreamble].find((p) =>
-    prompt.startsWith(p),
-  );
-  return previous
-    ? (shell ? shellPreamble : mobilePreamble) + prompt.slice(previous.length)
-    : prompt;
+const mobilePreamble =
+  "You are Moose, a helpful mobile assistant. Reply in the user’s language. Skills provide instructions only. Use only tools exposed in this conversation. External Skill resources are not automatically loaded. Never claim to have executed unavailable tools.";
+export function upgradeSkillPrompt(prompt: string) {
+  const prior = [
+    legacyPreamble,
+    previousMobilePreamble,
+    previousNativePreamble,
+    previousIshPreamble,
+  ].find((prefix) => prompt.startsWith(prefix));
+  return prior ? mobilePreamble + prompt.slice(prior.length) : prompt;
 }
 
 export function selectedSkillPrompt(
   skills: Skill[],
   selected: string[],
-  shell = false,
 ): string {
   const enabled = skills.filter((skill) => selected.includes(skill.id));
   const total = enabled.reduce(
@@ -128,7 +132,7 @@ export function selectedSkillPrompt(
   if (total > 65536)
     throw new Error("Selected skills exceed the 64 KiB prompt limit");
   return [
-    shell ? shellPreamble : mobilePreamble,
+    mobilePreamble,
     ...enabled.map(
       (skill) =>
         `\n<skill name=${JSON.stringify(skill.name)}>\n${skill.instructions}\n</skill>`,

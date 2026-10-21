@@ -33,3 +33,36 @@ export class MobileFileEnvironments {
     if (failure?.status === "rejected") throw failure.reason;
   }
 }
+
+import { defineTool } from "@earendil-works/pi-durable";
+import { getOrThrow } from "@earendil-works/pi-durable/env";
+import { Type } from "typebox";
+export function workspaceListTool() {
+  return defineTool({
+    name: "workspace_list",
+    description:
+      "Enumerate a directory in this conversation's persistent private /workspace. Other conversations and checkpoint branches have separate files. Use read/write/edit for file content. Pages contain at most 100 entries.",
+    parameters: Type.Object(
+      {
+        path: Type.Optional(Type.String({ maxLength: 1024 })),
+        offset: Type.Optional(Type.Integer({ minimum: 0, maximum: 10000 })),
+      },
+      { additionalProperties: false },
+    ),
+    replay: "safe",
+    outputLimits: { maxBytes: 32768 },
+    async execute(args, api, context) {
+      if (!api.env) throw new Error("Workspace unavailable");
+      const entries = getOrThrow(
+        await api.env.listDir(args.path ?? "/workspace", context),
+      ).sort((a, b) => a.name.localeCompare(b.name));
+      const offset = args.offset ?? 0;
+      const text = JSON.stringify({
+        scope: "conversation-private",
+        entries: entries.slice(offset, offset + 100),
+        nextOffset: offset + 100 < entries.length ? offset + 100 : null,
+      });
+      return { output: [{ type: "text", text }] };
+    },
+  });
+}

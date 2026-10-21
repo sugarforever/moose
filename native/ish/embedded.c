@@ -173,12 +173,20 @@ int moose_ish_command_run(moose_ish_command *c, moose_ish_result *result) {
   int main_pid = current->pid;
   /* Create only in-guest devices. No procfs, host mount, socket, or inherited
    * fds. */
-  generic_mknodat(AT_PWD, "/dev/null", S_IFCHR | 0666,
-                  dev_make(MEM_MAJOR, DEV_NULL_MINOR));
-  generic_mknodat(AT_PWD, "/dev/zero", S_IFCHR | 0666,
-                  dev_make(MEM_MAJOR, DEV_ZERO_MINOR));
-  generic_mknodat(AT_PWD, "/dev/urandom", S_IFCHR | 0666,
-                  dev_make(MEM_MAJOR, DEV_URANDOM_MINOR));
+  if ((err = generic_mkdirat(AT_PWD, "/dev", 0755)) < 0 && err != _EEXIST)
+    goto child_error;
+  if ((err = generic_mknodat(AT_PWD, "/dev/null", S_IFCHR | 0666,
+                            dev_make(MEM_MAJOR, DEV_NULL_MINOR))) < 0 &&
+      err != _EEXIST)
+    goto child_error;
+  if ((err = generic_mknodat(AT_PWD, "/dev/zero", S_IFCHR | 0666,
+                            dev_make(MEM_MAJOR, DEV_ZERO_MINOR))) < 0 &&
+      err != _EEXIST)
+    goto child_error;
+  if ((err = generic_mknodat(AT_PWD, "/dev/urandom", S_IFCHR | 0666,
+                            dev_make(MEM_MAJOR, DEV_URANDOM_MINOR))) < 0 &&
+      err != _EEXIST)
+    goto child_error;
   generic_mkdirat(AT_PWD, "/workspace", 0777);
   struct attr mode = make_attr(mode, 0777);
   generic_setattrat(AT_PWD, "/workspace", mode, true);

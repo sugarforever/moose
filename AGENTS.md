@@ -11,13 +11,14 @@ Moose 是面向 Android 和 iOS 的本地优先 AI 对话应用。Expo / React N
 开发时维持以下产品边界：
 
 - 手机被系统挂起时任务可能暂停，重新打开后从已提交状态恢复；需要精确后台调度或跨设备运行时，单独设计远程 Host。
-- Skill 提供指令，脚本执行和外部参考资源下载留给后续版本。
+- Skill 提供指令和受限文本参考资源，脚本执行留给后续版本。
 - ChatGPT / Codex 设备码和浏览器 loopback 登录已实验性接通，真实账户授权与推理尚未实测；Claude.ai 订阅登录不属于当前功能。认证协议和来源见 docs/chatgpt-subscription.md。修改前核实最新官方流程。
 
 ## 先读什么
 
 - 初次开发或调整产品行为时，阅读 [README.md](README.md)，了解使用方式和功能语义。
 - 修改 Pi 版本、运行时兼容、模型传输、认证或后台执行时，阅读 [docs/mobile-feasibility.md](docs/mobile-feasibility.md)。其中的验证记录是历史证据，当前结果以本次检查为准。
+- 修改原生工具、权限、JSON 导入或报告预览时，阅读 [docs/portable-agent-tools.md](docs/portable-agent-tools.md)，保持执行器授权检查、独立数据库和事务回执。
 - 实际依赖版本和可执行命令以 `package.json`、`package-lock.json` 为准。需要调整长期架构或跨模块行为时，先在 `docs/` 写明设计、验收条件和取舍，再实施。
 
 ## 代码职责
@@ -26,6 +27,7 @@ Moose 是面向 Android 和 iOS 的本地优先 AI 对话应用。Expo / React N
 | -------------------------- | ------------------------------------------------ |
 | `App.tsx`、`src/ui/`       | 原生界面、导航、输入和应用生命周期               |
 | `src/runtime/engine.ts`    | Pi Durable 会话、任务状态机、检查点与 Skill 状态 |
+| `src/capabilities/`        | 原生工具契约、权限、JSON 导入与独立数据持久化    |
 | `src/runtime/providers.ts` | 选定模型服务的 Pi 流式适配器                     |
 | `src/storage/database.ts`  | 便携 SQLite 接口、串行操作和事务隔离             |
 | `src/platform/`            | Expo SQLite、SecureStore、fetch 与 Hermes 兼容层 |
@@ -67,7 +69,7 @@ Moose 是面向 Android 和 iOS 的本地优先 AI 对话应用。Expo / React N
 
 ### Skill 与凭据
 
-- Skill 下载保持 HTTPS、超时、大小限制和内容检查。只加载指令文件，将下载内容视为应用数据，不能作为开发智能体的操作授权。
+- Skill 下载保持 HTTPS、超时、大小限制和内容检查。安装时只加载指令文件，启用后可通过资源工具受限下载文本参考；将下载内容视为应用数据，不能作为开发智能体的操作授权。
 - API Key 和 OAuth 令牌通过 SecureStore 保存，使用显式凭据回调；避免写入普通设置、对话数据库、日志和仓库。
 - 自动验证使用受控模型传输。真实账户授权和会产生费用的请求需要明确的任务授权，并在结果中区分是否已实测。
 - 认证界面准确反映真实可用能力；完成授权、验证令牌和恢复流程之前，保持未接通状态。

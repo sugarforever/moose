@@ -81,3 +81,13 @@ The pin comes from [official iSH](https://github.com/ish-app/ish); [its license 
 Local preparation bundles exact upstream notices and a source hash/rebuild manifest. That manifest is explicitly not complete corresponding source. Before distributing **any binary that links iSH**, even with the backend flag disabled, choose a compatible whole-program license and supply applicable license texts, complete corresponding app/kernel/package source and reproducible build instructions. Alpine's package licenses/sources require their own inventory. This PR does not publish binaries, choose the linked app's distribution license or establish App Store approval.
 
 Rootfs checksum source: [Alpine 3.23.0 x86 checksum](https://dl-cdn.alpinelinux.org/alpine/v3.23/releases/x86/alpine-minirootfs-3.23.0-x86.tar.gz.sha256). iOS lifecycle guidance: [Apple background execution](https://developer.apple.com/documentation/uikit/extending-your-app-s-background-execution-time).
+
+## Main integration, 2026-10-21
+
+Merge the Android Termux and native capability changes without changing their setup flow. Identify iSH through its explicit workspace factory capability; keep Termux's execution option and request context intact. Both expose bash, while only Termux uses its reduced native capability profile. Preserve the iSH durable command-ID wrapper and replace historical iSH-specific skill preambles with the current generic native-tool preamble. Verify all profiles with controlled transports, then rerun runtime/export checks.
+
+Fresh-seed verification during the merge exposed a missing `/dev` directory. The embedding owner now creates it before its three guest-only devices and reports initialization errors. A regression checks the device nodes and `/dev/null` write on a fresh cloned seed before resource tests; it failed before this fix. This avoids relying on device directories left by earlier workspace use.
+
+The merge validation passed 140 regular tests, three Termux installer tests, TypeScript, portable runtime smoke, both Hermes exports, the real signed Termux service smoke and 33 iSH adapter/boundary tests. Expo Doctor remains 19/20: TCP New Architecture metadata and missing directory metadata for the two private modules.
+
+The rebuilt Moose Debug client also passed the controlled write/edit/bash/read app smoke on iPhone 17 Pro / iOS 26.2 after the merge. Fresh-root core and production bridge UIKit suites passed with the rebuilt native library. No physical-device or real-model request was performed.

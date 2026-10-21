@@ -12,3 +12,6 @@ src/generated/
 *.log
 
 scripts/ish/__pycache__/
+
+# Authored local Expo module source.
+!vendor/moose-termux-native/android/

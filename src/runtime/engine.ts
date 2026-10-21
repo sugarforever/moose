@@ -1,3 +1,5 @@
+import { executionRequestKey } from "./execution-request";
+import { withContextValue } from "@earendil-works/chord/context";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Models } from "@earendil-works/pi-ai/models";
 import {
@@ -23,12 +25,23 @@ import {
   type Skill,
 } from "../skills/skills";
 import {
+  createBashTool,
   createReadTool,
   createWriteTool,
   createEditTool,
 } from "@earendil-works/pi-durable/tools";
 import { createIshBashTool } from "./ish";
-import { MobileFileEnvironments, type MobileWorkspaceFactory } from "./files";
+import {
+  MobileFileEnvironments,
+  workspaceListTool,
+  type MobileWorkspaceFactory,
+} from "./files";
+
+import {
+  CapabilityService,
+  type CapabilityOptions,
+} from "../capabilities/service";
+import { capabilityExtension } from "../capabilities/tools";
 
 export interface ModelSettings {
   provider: string;
@@ -170,7 +183,7 @@ export class MobileEngine {
     private database: SqliteDatabase,
     private settings: ModelSettings,
     private files?: MobileFileEnvironments,
-    private shell = false,
+    readonly capabilities?: CapabilityService,
   ) {}
 
   static async open(
@@ -179,6 +192,8 @@ export class MobileEngine {
     settings: ModelSettings,
     now = Date.now,
     workspaceFactory?: MobileWorkspaceFactory,
+    capabilityOptions?: Omit<CapabilityOptions, "skills">,
+    executionOptions: { shell?: boolean } = {},
   ) {
     await database.exec(
       "CREATE TABLE IF NOT EXISTS moose_data (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
@@ -190,7 +205,8 @@ export class MobileEngine {
     const files = workspaceFactory
       ? new MobileFileEnvironments(workspaceFactory)
       : undefined;
-    const shell = workspaceFactory?.shell === true;
+    const ish = workspaceFactory?.shell === true;
+    const shell = ish || executionOptions.shell === true;
     if (files)
       registry.install(
         defineExtension({
@@ -199,15 +215,55 @@ export class MobileEngine {
             createReadTool(),
             createWriteTool(),
             createEditTool(),
-            ...(shell ? [createIshBashTool()] : []),
-          ],
+            ...(shell
+              ? [ish ? createIshBashTool() : createBashTool()]
+              : [workspaceListTool()]),
+          ].map((tool) => ({
+            ...tool,
+            execute: (args, api, context) =>
+              tool.execute(
+                args as never,
+                api,
+                withContextValue(
+                  executionRequestKey,
+                  { taskId: String(api.taskId), sequence: 0 },
+                  context,
+                ),
+              ),
+          })),
           sections: [
             section("mobile-workspace", () =>
-              shell
-                ? "Use read, write and edit for files inside /workspace and bash for the local iSH POSIX shell. They share this conversation’s persistent guest files. Other conversations and new checkpoint branches have separate roots. Files are not checkpointed. Network access is unavailable. iOS suspension may pause commands."
-                : "Use read, write and edit for files inside /workspace in this conversation’s app-private device workspace. Relative paths start at /workspace. Other conversations and new checkpoint branches have separate workspaces. File contents are not part of a conversation checkpoint. Shell, script execution, web search and external document access are unavailable.",
+              ish
+                ? "Use read, write and edit for files inside /workspace and bash for the local iSH POSIX shell. They share this conversation’s persistent guest files. Other conversations and new checkpoint branches have separate roots. Files are not checkpointed. Guest network access is unavailable; use advertised native tools for approved HTTP, stored documents and reports. iOS suspension may pause commands. Never repeat a command automatically after an unknown outcome."
+                : executionOptions.shell
+                  ? "Use read, write, edit and bash in this conversation’s Termux workspace. All tools share the same directory. Use relative paths with all tools; /workspace is a file RPC alias, not a physical shell path. Run pwd in bash to discover its physical directory. Native shell commands have Termux app permissions, not container isolation. Other conversations start in separate directories. Checkpoints do not snapshot files. Never repeat a command automatically after an unknown outcome."
+                  : "Use read, write, edit and workspace_list for files inside /workspace in this conversation’s app-private device workspace. Relative paths start at /workspace. Other conversations and new checkpoint branches have separate workspaces. File contents are not part of a conversation checkpoint. Shell and script execution are unavailable. Use advertised native tools for approved HTTP, stored documents and reports.",
             ),
           ],
+        }),
+      );
+    const enabledSkills = async (id: number) => {
+      const installed = await database.get<{ value: string }>(
+        "SELECT value FROM moose_data WHERE key='skills'",
+      );
+      const selection = await database.get<{ value: string }>(
+        "SELECT value FROM moose_data WHERE key=?",
+        `skills:${id}`,
+      );
+      const selected = selection
+        ? (JSON.parse(selection.value) as string[])
+        : [];
+      return (installed ? (JSON.parse(installed.value) as Skill[]) : []).filter(
+        (s) => selected.includes(s.id),
+      );
+    };
+    const capabilities = capabilityOptions
+      ? new CapabilityService({ ...capabilityOptions, skills: enabledSkills })
+      : undefined;
+    if (capabilities)
+      registry.install(
+        capabilityExtension(capabilities, enabledSkills, {
+          termux: !!executionOptions.shell && !ish,
         }),
       );
     const harness = await Harness.open(
@@ -221,7 +277,13 @@ export class MobileEngine {
       },
       BACKGROUND_CONTEXT,
     );
-    const engine = new MobileEngine(harness, database, settings, files, shell);
+    const engine = new MobileEngine(
+      harness,
+      database,
+      settings,
+      files,
+      capabilities,
+    );
     try {
       if (files)
         for (const item of await engine.listConversations())
@@ -236,7 +298,7 @@ export class MobileEngine {
     const conversation = await this.conversation(id);
     const instructions = (await conversation.agent(this.context)).instructions;
     if (instructions) {
-      const next = upgradeSkillPrompt(instructions, this.shell);
+      const next = upgradeSkillPrompt(instructions);
       if (next !== instructions)
         await conversation.configure({ instructions: next }, this.context);
     }
@@ -273,7 +335,7 @@ export class MobileEngine {
         ownership: { kind: "ownerless" },
         agent: {
           model: this.settings,
-          instructions: selectedSkillPrompt([], [], this.shell),
+          instructions: selectedSkillPrompt([], []),
         },
       },
       this.context,
@@ -295,7 +357,7 @@ export class MobileEngine {
     skills: Skill[],
     selected: string[],
   ) {
-    const prompt = selectedSkillPrompt(skills, selected, this.shell);
+    const prompt = selectedSkillPrompt(skills, selected);
     await (
       await this.conversation(id)
     ).configure({ model: settings, instructions: prompt }, this.context);
@@ -349,7 +411,7 @@ export class MobileEngine {
           await (
             await this.conversation(conversation.id)
           ).configure(
-            { instructions: selectedSkillPrompt(installed, next, this.shell) },
+            { instructions: selectedSkillPrompt(installed, next) },
             this.context,
           );
           await this.write(`skills:${conversation.id}`, next);
@@ -507,6 +569,22 @@ export class MobileEngine {
         .map((task) => this.repeatStatus(Number(task.id))),
     );
   }
+  async assertEnvironmentSwitchIdle() {
+    if ((await this.tasks()).some((task) => task.status !== "terminal"))
+      throw new Error("请先停止重复任务，再切换执行环境");
+    for (const chat of await this.listConversations()) {
+      const live = await this.harness.snapshot(
+        LiveDoc,
+        chat.id as ConversationId,
+        this.context,
+      );
+      if (live?.run) throw new Error("请等待所有对话完成，再切换执行环境");
+    }
+    const pending = await this.database.get<{ key: string }>(
+      "SELECT key FROM moose_data WHERE key LIKE 'outbox:%' AND value != 'null' LIMIT 1",
+    );
+    if (pending) throw new Error("请先处理待提交请求，再切换执行环境");
+  }
   async stopTask(id: number) {
     await this.harness.abortTask(id as TaskId, this.context);
   }
@@ -522,7 +600,11 @@ export class MobileEngine {
       try {
         await this.harness.close(this.context);
       } finally {
-        await this.files?.close(this.context);
+        try {
+          await this.files?.close(this.context);
+        } finally {
+          await this.capabilities?.close();
+        }
       }
     }
   }

@@ -234,7 +234,12 @@ int main(int argc, char **argv) {
   assert(argc == 3);
   char out[4096];
   initialization_race(argv[1], argv[2]);
-  moose_ish_result r =
+  moose_ish_result r = execute(
+      argv[1], "test -c /dev/null && test -c /dev/zero && "
+               "test -c /dev/urandom && printf ok > /dev/null && echo devices-ready",
+      2000, out);
+  assert(!r.error && !r.exit_code && !strcmp(out, "devices-ready\n"));
+  r =
       execute(argv[1], "printf '%s' \"$TEST_VALUE\"; exit 7", 2000, out);
   assert(r.error == 0 && r.exit_code == 7 && !strcmp(out, "literal value"));
   r = execute(argv[1], "echo first > state; cat state | tr a-z A-Z", 2000, out);
