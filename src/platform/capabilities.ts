@@ -28,7 +28,7 @@ export const approvals = {
     title: string,
   ): Promise<boolean> =>
     new Promise((resolve) => {
-      if (AppState.currentState !== "active" || request.signal.aborted) {
+      if (request.signal.aborted) {
         resolve(false);
         return;
       }
@@ -48,7 +48,7 @@ export const approvals = {
       };
       const cancel = () => finish(false);
       const subscription = AppState.addEventListener("change", (state) => {
-        if (state !== "active") cancel();
+        for (const fn of listeners) fn();
       });
       request.signal.addEventListener("abort", cancel, { once: true });
       current = { ...request, skillName, title, resolve: finish };

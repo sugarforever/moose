@@ -79,7 +79,7 @@ Automated tests use controlled responses, without signing into real accounts or 
 
 Recurring tasks run immediately for the first iteration, with an interval of at least one minute and a total of 2–100 iterations. Requests receive a stable ID before submission. Unconfirmed submissions can retry the same ID to avoid duplicate queue entries. Stopping a recurring task stops future scheduling; an already submitted response must be stopped separately in the conversation.
 
-**Tasks primarily run in the foreground. Execution at an exact time is not guaranteed while the screen is locked or the app is suspended.** Reopening resumes from committed state. An overdue recurring task runs once before calculating its next interval, rather than replaying every missed iteration. This version has no remote execution host, cross-device synchronization, or persistent background service.
+Android protects user-initiated finite runs with a bounded foreground service; see [Android foreground execution](#android-foreground-execution). iOS may pause when suspended. Exact recurring execution times are not guaranteed. Reopening recovers committed state, and an overdue recurring task runs once before calculating its next interval. This version has no remote execution host or cross-device synchronization.
 
 Restoring a checkpoint creates a new branch from the corresponding historical message and preserves the original conversation.
 
@@ -150,12 +150,12 @@ npm run verify
 npx expo-doctor
 ```
 
-`verify` covers runtime bundle generation, 119 unit and integration tests, 3 real installer-script tests, TypeScript checks, the Pi Durable / SQLite / simulated Codex path without Node globals, and Android and iOS Hermes release asset exports.
+`verify` covers runtime bundle generation, unit and integration tests, 3 real installer-script tests, TypeScript checks, the Pi Durable / SQLite / simulated Codex path without Node globals, and Android and iOS Hermes release asset exports.
 
 Current validation coverage:
 
 - iOS: Native debug build, installation, and operation on an iPhone 17 Pro simulator. Checks covered chat layout, message menus, keyboard avoidance, skill downloads and persistence, and local authentication callback listening and cancellation cleanup.
-- Android: Release assets exported successfully. [GitHub Actions successfully compiled a test APK](https://github.com/sugarforever/moose/actions/runs/39503789329) containing the native Termux setup module. Phone installation, permission grants, and real Termux operations have not yet been validated.
+- Android: Debug APK compilation, installation on an Android 35 emulator, and controlled foreground-service SSE / local file-tool / next-round execution with SQLite commits, Activity destruction/recreation, notification stopping, and force-stop persistence passed. Physical-device Doze, vendor power policies, the full 30-minute timeout, and real Termux operations remain unverified. Release assets exported successfully. [GitHub Actions successfully compiled a test APK](https://github.com/sugarforever/moose/actions/runs/39503789329) containing the native Termux setup module. Phone installation, permission grants, and real Termux operations have not yet been validated.
 - Expo Doctor: 19 of 20 checks passed. The remaining check concerns new-architecture metadata for the TCP library and missing public-directory metadata for the local Termux module; this is not a fully passing result.
 - File environment: The local package completed real file reads, writes, edits, SQLite reopening, and workspace isolation checks on the iOS simulator using controlled OpenAI SSE responses, without real credentials or billable requests.
 
@@ -183,3 +183,15 @@ tests/                     Protocol, storage, task, and recovery tests
 Pi Durable / AI / Chord are pinned to 1.3.0. Portable entry points are prebundled with esbuild, excluding Node credential autodiscovery and OAuth callback servers. Platform capabilities are injected explicitly. Generated `src/generated/`, `ios/`, `android/`, and `dist/` directories are not committed and are regenerated during builds and validation.
 
 See [AGENTS.md](AGENTS.md) for development constraints and [chat layout notes](docs/chat-layout.md) for interface design. Brand icon sources and licenses are documented in [assets/brands](assets/brands/README.md).
+
+## Android foreground execution
+
+On Android, a user-initiated answer or finite task establishes a shared foreground service and notification before model work begins. The existing Hermes runtime and Pi Harness continue the same SSE, local tools and SQLite commits when the Activity is hidden. Returning to the app does not resubmit, reopen the Harness or resume it again. Notification permission is required; a denied permission or failed service handshake prevents model execution.
+
+Automatic compaction runs as part of the active answer rather than as speculative background work. All active conversations share the service. The last run releases it; each continuous service generation has a 30-minute execution budget and a bounded partial wake lock. The notification's Stop action cancels all answers and recurring tasks, including future iterations. If JavaScript cannot acknowledge cancellation within 10 seconds, the native service terminates this process; a persistent cancellation marker is processed before recovery on the next manual launch. A missing startup handshake triggers cancellation after 15 seconds.
+
+Recurring tasks do not hold the service while waiting. An iteration due while the app is hidden waits until Moose is visible unless another active run already holds the service. There is no scheduled background wakeup, boot receiver or automatic service restart. A tool requiring new permission stores the pending permission scope and prompts the user to open Moose; it never grants permission automatically. Termux is a separate app and is not kept alive by Moose's service. Switching execution environments is blocked while any conversation, repeat, pending request or foreground admission is active.
+
+System reclamation, Doze, network loss and vendor power policies can still interrupt execution. Process death cannot preserve the original TCP connection or Promise, and recovery cannot guarantee a model is billed only once. Force-stop is respected. iOS retains its existing suspension behavior. The Android `specialUse` declaration describes finite AI work; this does not imply Google Play approval.
+
+For a controlled native probe, rebuild the Android development client and run `EXPO_PUBLIC_MOOSE_BACKGROUND_SMOKE=1 npx expo start --dev-client`. Tap Run background probe, confirm the service starts, then press Home. After 15 seconds the probe should finish its file tool and second model round, commit SQLite and release its notification. The probe uses a separate database and controlled SSE, never real credentials or paid requests. Notification stopping can be checked during the delay.

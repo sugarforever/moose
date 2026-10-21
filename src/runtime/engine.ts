@@ -1,3 +1,4 @@
+import type { ExecutionGuard } from "./execution-owner";
 import { executionRequestKey } from "./execution-request";
 import { withContextValue } from "@earendil-works/chord/context";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -71,72 +72,77 @@ const RepeatProgress = defineDoc({
 });
 
 /** Each iteration has a stable idempotency key, including after interruption mid-submit. */
-const RepeatTask = defineTask<
-  RepeatInput,
-  RepeatCheckpoint,
-  { completed: number }
->({
-  name: "moose.repeat",
-  version: 1,
-  initial: () => ({ phase: "run", completed: 0, at: 0 }),
-  phases: {
-    run: async (task, runtime, context) => {
-      const checkpoint = task.state.checkpoint;
-      const conversation = await runtime.conversation(
-        runtime.conversationId,
-        context,
-      );
-      if (!conversation) throw new Error("Repeat conversation missing");
-      const submission = await conversation.submit(
-        {
-          type: "input",
-          content: task.input.prompt,
-          requestId: `repeat:${task.id}:${checkpoint.completed}`,
-          whenBusy: "followUp",
-        },
-        context,
-      );
-      const receipt = await submission.wait(context);
-      if (receipt.status !== "done")
-        throw new Error(
-          "Repeat input was not answered; stopped to avoid repeated charges",
+const createRepeatTask = (guard?: ExecutionGuard) =>
+  defineTask<RepeatInput, RepeatCheckpoint, { completed: number }>({
+    name: "moose.repeat",
+    version: 1,
+    initial: () => ({ phase: "run", completed: 0, at: 0 }),
+    phases: {
+      run: async (task, runtime, context) => {
+        const lease = await guard?.(runtime.signal);
+        try {
+          if (lease?.signal.aborted) throw new Error("Task stopped");
+          const checkpoint = task.state.checkpoint;
+          const conversation = await runtime.conversation(
+            runtime.conversationId,
+            context,
+          );
+          if (!conversation) throw new Error("Repeat conversation missing");
+          if (lease?.signal.aborted) throw new Error("Task stopped");
+          const submission = await conversation.submit(
+            {
+              type: "input",
+              content: task.input.prompt,
+              requestId: `repeat:${task.id}:${checkpoint.completed}`,
+              whenBusy: "followUp",
+            },
+            context,
+          );
+          const receipt = await submission.wait(context);
+          if (receipt.status !== "done")
+            throw new Error(
+              "Repeat input was not answered; stopped to avoid repeated charges",
+            );
+          const completed = checkpoint.completed + 1;
+          await runtime.commit(async (tx) => {
+            (await tx.doc(RepeatProgress)).completed[String(task.id)] =
+              completed;
+            return completed >= task.input.count
+              ? {
+                  status: "terminal",
+                  outcome: { status: "completed", result: { completed } },
+                }
+              : {
+                  status: "running",
+                  checkpoint: {
+                    phase: "wait",
+                    completed,
+                    at: runtime.now() + task.input.intervalMs,
+                  },
+                };
+          }, context);
+        } finally {
+          await lease?.release();
+        }
+      },
+      wait: async (task, runtime, context) => {
+        await runtime.sleep(task.state.checkpoint.at, context);
+        await runtime.commit(
+          () => ({
+            status: "running",
+            checkpoint: { ...task.state.checkpoint, phase: "run" },
+          }),
+          context,
         );
-      const completed = checkpoint.completed + 1;
-      await runtime.commit(async (tx) => {
-        (await tx.doc(RepeatProgress)).completed[String(task.id)] = completed;
-        return completed >= task.input.count
-          ? {
-              status: "terminal",
-              outcome: { status: "completed", result: { completed } },
-            }
-          : {
-              status: "running",
-              checkpoint: {
-                phase: "wait",
-                completed,
-                at: runtime.now() + task.input.intervalMs,
-              },
-            };
-      }, context);
+      },
     },
-    wait: async (task, runtime, context) => {
-      await runtime.sleep(task.state.checkpoint.at, context);
+    abort: async (_task, runtime, context) => {
       await runtime.commit(
-        () => ({
-          status: "running",
-          checkpoint: { ...task.state.checkpoint, phase: "run" },
-        }),
+        () => ({ status: "terminal", outcome: { status: "aborted" } }),
         context,
       );
     },
-  },
-  abort: async (_task, runtime, context) => {
-    await runtime.commit(
-      () => ({ status: "terminal", outcome: { status: "aborted" } }),
-      context,
-    );
-  },
-});
+  });
 
 export function chatMessages(
   view: Pick<ConversationView, "entries">,
@@ -183,6 +189,7 @@ export class MobileEngine {
     private settings: ModelSettings,
     private files?: MobileFileEnvironments,
     readonly capabilities?: CapabilityService,
+    private executionGuard?: ExecutionGuard,
   ) {}
 
   static async open(
@@ -193,11 +200,13 @@ export class MobileEngine {
     workspaceFactory?: MobileWorkspaceFactory,
     capabilityOptions?: Omit<CapabilityOptions, "skills">,
     executionOptions: { shell?: boolean } = {},
+    executionGuard?: ExecutionGuard,
   ) {
     await database.exec(
       "CREATE TABLE IF NOT EXISTS moose_data (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     );
     const registry = createRegistry();
+    const RepeatTask = createRepeatTask(executionGuard);
     registry.install(
       defineExtension({ name: "moose.tasks", tasks: [RepeatTask] }),
     );
@@ -268,7 +277,11 @@ export class MobileEngine {
         registry,
         now,
         env: files ? (target) => files.get(target) : undefined,
-        settings: { progress: { partialIntervalMs: 150 } },
+        settings: {
+          progress: { partialIntervalMs: 150 },
+          // Keep automatic compaction inside the generation's execution lease.
+          compaction: { backgroundTokens: 0 },
+        },
       },
       BACKGROUND_CONTEXT,
     );
@@ -278,6 +291,7 @@ export class MobileEngine {
       settings,
       files,
       capabilities,
+      executionGuard,
     );
     try {
       if (files)
@@ -427,10 +441,30 @@ export class MobileEngine {
   }
   async submit(id: number, text: string, requestId: string) {
     if (!text.trim()) throw new Error("Enter a message");
-    return (await this.conversation(id)).submit(
-      { type: "input", content: text.trim(), requestId, whenBusy: "followUp" },
-      this.context,
-    );
+    const lease = await this.executionGuard?.();
+    try {
+      await this.resume();
+      const conversation = await this.conversation(id);
+      if (lease?.signal.aborted) throw new Error("Task stopped");
+      const submission = await conversation.submit(
+        {
+          type: "input",
+          content: text.trim(),
+          requestId,
+          whenBusy: "followUp",
+        },
+        this.context,
+      );
+      // Ownership is independent of whether a UI still awaits the receipt.
+      void submission
+        .wait(this.context)
+        .finally(() => lease?.release())
+        .catch(() => {});
+      return submission;
+    } catch (error) {
+      await lease?.release();
+      throw error;
+    }
   }
   async messages(id: number): Promise<ChatMessage[]> {
     const view = await (await this.conversation(id)).context(this.context);
@@ -510,11 +544,12 @@ export class MobileEngine {
       count > 100
     )
       throw new Error("Repeat needs text, at least 1 minute and 2–100 runs");
+    await this.resume();
     const conversation = await this.conversation(id);
     const taskId = await conversation.commit(
       (tx) =>
         tx.createTask(
-          RepeatTask,
+          createRepeatTask(),
           { prompt: prompt.trim(), intervalMs, count },
           { ownership: { kind: "conversation" }, background: true },
         ),
@@ -587,15 +622,84 @@ export class MobileEngine {
       throw new Error(
         "Resolve pending requests before switching execution environments",
       );
+    const pendingWork = await this.harness.inspect(this.context);
+    if (pendingWork.tasks.length || pendingWork.submissions.length)
+      throw new Error(
+        "Wait for all conversations and tasks before switching execution environments",
+      );
   }
   async stopTask(id: number) {
     await this.harness.abortTask(id as TaskId, this.context);
   }
   async stopConversation(id: number) {
+    // Conversation.abort enables Pi scheduling, so protect other persisted runs first.
+    await this.resume();
     await (await this.conversation(id)).abort(this.context);
   }
-  resume() {
+  private resumed = false;
+  private recovery?: Promise<void>;
+  resume(): Promise<void> {
+    // The first progress-producing action restores every persisted run. AppState does not.
+    if (this.resumed) {
+      this.harness.resume();
+      return Promise.resolve();
+    }
+    return (this.recovery ??= this.resumePending()
+      .then(() => {
+        this.resumed = true;
+      })
+      .finally(() => {
+        this.recovery = undefined;
+      }));
+  }
+  private async resumePending() {
+    const pending = await this.harness.inspect(this.context);
+    const ids = new Set<number>([
+      ...pending.submissions.map((item) => Number(item.conversationId)),
+      ...pending.tasks
+        .filter((item) => item.record.kind !== "moose.repeat")
+        .map((item) => Number(item.record.conversationId)),
+    ]);
+    const lease = ids.size ? await this.executionGuard?.() : undefined;
+    if (lease?.signal.aborted) {
+      await lease.release();
+      throw new Error("Task stopped");
+    }
     this.harness.resume();
+    if (lease) {
+      void Promise.all([
+        ...[...ids].map(async (id) =>
+          (await this.conversation(id)).waitForIdle(this.context),
+        ),
+        // Older databases may contain speculative background compactions.
+        ...pending.tasks
+          .filter((item) => item.record.kind !== "moose.repeat")
+          .map((item) =>
+            this.harness.waitForTask(item.record.id, this.context),
+          ),
+      ])
+        .finally(() => lease.release())
+        .catch(() => {});
+    }
+  }
+  async stopAll() {
+    // Cross repeat/background ownership boundaries and withdraw queued inputs.
+    const pending = await this.harness.inspect(this.context);
+    const ids = new Set([
+      ...pending.tasks.map((item) => Number(item.record.conversationId)),
+      ...pending.submissions.map((item) => Number(item.conversationId)),
+    ]);
+    const conversations = await Promise.all(
+      [...ids].map((id) => this.conversation(id)),
+    );
+    await Promise.all(
+      conversations.map((chat) =>
+        chat.abort(this.context, { background: true }),
+      ),
+    );
+    await this.database.run(
+      "DELETE FROM moose_data WHERE key LIKE 'permission-wait:%'",
+    );
   }
   async close() {
     if (!this.disposed) {
