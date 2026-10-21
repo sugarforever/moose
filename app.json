@@ -2,7 +2,7 @@
   "expo": {
     "name": "Moose",
     "slug": "moose-mobile",
-    "version": "0.2.3",
+    "version": "0.3.0",
     "scheme": "moose",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
@@ -15,7 +15,7 @@
     },
     "android": {
       "package": "dev.verysmallwoods.moose",
-      "versionCode": 8
+      "versionCode": 9
     },
     "plugins": [
       "expo-sqlite",

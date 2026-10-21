@@ -1,6 +1,6 @@
 # Moose
 
-Moose v0.2.3 is an open source AI agent for iOS and Android powered by Pi Durable. Expo / React Native provides the interface, Pi Durable runs on the phone's Hermes runtime, and SQLite stores conversations and tasks. Model requests go directly to the provider; no Moose backend is required.
+Moose v0.3.0 is an open source AI agent for iOS and Android powered by Pi Durable. Expo / React Native provides the interface, Pi Durable runs on the phone's Hermes runtime, and SQLite stores conversations and tasks. Model requests go directly to the provider; no Moose backend is required.
 
 ## Features
 
