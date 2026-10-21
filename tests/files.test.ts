@@ -1,3 +1,5 @@
+import { chatActivity, toolMessages } from "../src/ui/chat-activity";
+import type { LiveState } from "@earendil-works/pi-durable";
 import { afterEach, expect, it } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import * as fs from "node:fs/promises";
@@ -120,6 +122,7 @@ it("runs genuine tools through Moose, persists files, isolates conversations and
       edits: [{ oldText: "Hello", newText: "你好" }],
     }),
     call("read", { path: "notes/test.txt" }),
+    call("workspace_list", { path: "notes" }),
     fauxAssistantMessage("Saved"),
   ]);
   let engine = await MobileEngine.open(
@@ -133,7 +136,15 @@ it("runs genuine tools through Moose, persists files, isolates conversations and
   const first = await engine.newConversation("Files");
   expect(
     (await first.agent(engine.context)).tools.map((t) => t.name).sort(),
-  ).toEqual(["edit", "read", "write"]);
+  ).toEqual(["edit", "read", "workspace_list", "write"]);
+  const observed: string[] = [];
+  const detach = await engine.watch(Number(first.id), (view) => {
+    observed.push(
+      ...chatActivity(view.docs["pi.live"] as unknown as LiveState).map(
+        (row) => row.label,
+      ),
+    );
+  });
   expect(
     (
       await (
@@ -154,6 +165,18 @@ it("runs genuine tools through Moose, persists files, isolates conversations and
   expect((await engine.messages(first.id)).map((m) => m.text)).toEqual([
     "Write, edit and read a note",
     "Saved",
+  ]);
+  await detach();
+  expect(observed).toContain("write · 执行中");
+  expect(
+    toolMessages(await first.context(engine.context)).map(
+      (row) => row.activity.label,
+    ),
+  ).toEqual([
+    "write · 已完成",
+    "edit · 已完成",
+    "read · 已完成",
+    "workspace_list · 已完成",
   ]);
   const checkpoint = await engine.checkpoint(first.id, "File checkpoint");
   const branch = await engine.restoreCheckpoint(checkpoint.id);
@@ -177,6 +200,9 @@ it("runs genuine tools through Moose, persists files, isolates conversations and
         .some((message) => message.role === "toolResult" && message.isError),
     ).toBe(true);
   }
+  expect(
+    JSON.stringify((await first.context(engine.context)).entries),
+  ).toContain("conversation-private");
   expect(environments).toHaveLength(3);
   await first.configure(
     {
@@ -198,6 +224,16 @@ it("runs genuine tools through Moose, persists files, isolates conversations and
   const upgraded = await (
     await engine.conversation(first.id)
   ).agent(engine.context);
+  expect(
+    toolMessages(
+      await (await engine.conversation(first.id)).context(engine.context),
+    ).map((row) => row.activity.label),
+  ).toEqual([
+    "write · 已完成",
+    "edit · 已完成",
+    "read · 已完成",
+    "workspace_list · 已完成",
+  ]);
   expect(upgraded.instructions).not.toContain(
     "No shell, scripts, filesystem tools",
   );
@@ -334,4 +370,73 @@ it("rejects a checkpoint while a text-bearing tool call is still running", async
   expect(
     (await engine.checkpoint(chat.id, "Completed")).entryId,
   ).toBeGreaterThan(0);
+});
+
+it("advertises bash only for an explicitly selected shell environment", async () => {
+  const { root, factory, models, settings } = await fixture();
+  const engine = await MobileEngine.open(
+    database(join(root, "shell.sqlite")),
+    models,
+    settings,
+    Date.now,
+    factory,
+    undefined,
+    { shell: true },
+  );
+  cleanup.push(() => engine.close());
+  const chat = await engine.newConversation("Termux");
+  expect(
+    (await chat.agent(engine.context)).tools.map((t) => t.name).sort(),
+  ).toEqual(["bash", "edit", "read", "write"]);
+  expect((await chat.agent(engine.context)).instructions).not.toContain(
+    "Shell, script execution",
+  );
+});
+
+it("uses real Termux bash and file tools together through a controlled model", async () => {
+  const { startService } = await import("../components/termux-service/server");
+  const { TermuxEnvironment, signedTransport } =
+    await import("../src/termux/environment");
+  const { ed25519 } = await import("@noble/curves/ed25519.js");
+  const { root, models, settings, faux } = await fixture();
+  const seed = new Uint8Array(32).fill(4);
+  const service = await startService({
+    root: join(root, "termux"),
+    publicKey: ed25519.getPublicKey(seed),
+    port: 0,
+  });
+  cleanup.push(() => service.close());
+  const rpc = signedTransport(service.url, seed, fetch, () =>
+    crypto.randomUUID(),
+  );
+  faux.setResponses([
+    call("write", { path: "shared", content: "hello" }),
+    call("bash", { command: "cat shared > result; printf shell" }),
+    call("read", { path: "result" }),
+    fauxAssistantMessage("Done"),
+  ]);
+  const engine = await MobileEngine.open(
+    database(join(root, "termux.sqlite")),
+    models,
+    settings,
+    Date.now,
+    (id) => new TermuxEnvironment(id, rpc),
+    undefined,
+    { shell: true },
+  );
+  cleanup.push(() => engine.close());
+  const chat = await engine.newConversation();
+  expect(
+    (
+      await (
+        await engine.submit(chat.id, "Use files and shell", "termux-e2e")
+      ).wait(engine.context)
+    ).status,
+  ).toBe("done");
+  expect(
+    await fs.readFile(
+      join(root, "termux", "workspaces", `moose-chat-${chat.id}`, "result"),
+      "utf8",
+    ),
+  ).toBe("hello");
 });

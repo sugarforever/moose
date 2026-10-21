@@ -7,3 +7,6 @@ export {
 } from "../skills/skills";
 export { createMobileModels } from "./providers";
 export { CodexAuth, CodexAuthError } from "../auth/codex";
+
+export { PermissionStore } from "../capabilities/permissions";
+export { CapabilityService } from "../capabilities/service";

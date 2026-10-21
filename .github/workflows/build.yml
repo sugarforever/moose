@@ -50,8 +50,20 @@ jobs:
       - name: Run tests and type checks
         run: |
           npm test
+          npm run test:termux-bootstrap
           npm run typecheck
           npm run smoke:portable
+
+      - name: Bundle Termux companion service
+        run: npm run bundle:termux
+
+      - name: Upload Termux service
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: moose-termux-service-${{ github.run_number }}
+          path: dist/termux/service.mjs
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Generate Android project
         env:
@@ -88,10 +100,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" android/app/build/outputs/apk/release/*.apk \
+          gh release create "$GITHUB_REF_NAME" android/app/build/outputs/apk/release/*.apk dist/termux/service.mjs \
             android/app/build/outputs/apk/release/moose-update.json \
             --verify-tag --prerelease --title "Moose $GITHUB_REF_NAME (Android preview)" \
-            --notes "Android preview APK with embedded JS/Hermes assets; no Metro required. Uses the default test signing key. iOS is not included. Model access requires your own credentials. Native installation and startup have not yet been verified on an Android device."
+            --notes "Android preview APK with embedded JS/Hermes assets; no Metro required. Uses the default test signing key. Includes the optional Termux service.mjs companion; see README for setup. Android Termux device validation remains pending. iOS is not included. Model access requires your own credentials. Native installation and startup have not yet been verified on an Android device."
 
   ios:
     name: iOS (paused)

@@ -11,3 +11,6 @@ src/generated/
 
 .DS_Store
 *.log
+
+# Authored local Expo module source, not the generated root Android project.
+!vendor/moose-termux-native/android/

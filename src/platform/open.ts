@@ -8,6 +8,10 @@ import {
   createMobileModels,
 } from "../generated/runtime";
 import type { ModelSettings } from "../runtime/engine";
+import { termux } from "./termux";
+import { PermissionStore } from "../generated/runtime";
+import { approvals, openCapabilityDatabase } from "./capabilities";
+import type { Skill } from "../skills/skills";
 import { codexAuth } from "./codex";
 
 export const defaultSettings: ModelSettings = {
@@ -31,25 +35,95 @@ export const credentials = {
 };
 export async function openMobile() {
   const native = await openDatabaseAsync("moose.sqlite");
-  await native.execAsync(
-    "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;",
-  );
-  const models = createMobileModels(
-    credentials.get,
-    nativeFetch as typeof fetch,
-    (signal) => codexAuth.getAccessToken(signal),
-  );
-  const engine = await MobileEngine.open(
-    new SerialSqliteDatabase(native),
-    models,
-    defaultSettings,
-    Date.now,
-    (workspaceId) => createExpoWorkspace({ workspaceId }),
-  );
-  const settings = await engine.read<ModelSettings>(
-    "settings",
-    defaultSettings,
-  );
-  engine.updateSettings(settings);
-  return { engine, models, settings };
+  let nativeClosed = false;
+  const closeNative = async () => {
+    if (!nativeClosed) {
+      await native.closeAsync();
+      nativeClosed = true;
+    }
+  };
+  const database = new SerialSqliteDatabase({
+    execAsync: native.execAsync.bind(native),
+    runAsync: native.runAsync.bind(native),
+    getFirstAsync: native.getFirstAsync.bind(native),
+    getAllAsync: native.getAllAsync.bind(native),
+    closeAsync: closeNative,
+  });
+  let engine: MobileEngine | undefined;
+  try {
+    await native.execAsync(
+      "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;",
+    );
+    const models = createMobileModels(
+      credentials.get,
+      nativeFetch as typeof fetch,
+      (signal) => codexAuth.getAccessToken(signal),
+    );
+    const termuxFactory = await termux.factory();
+    const permissions = await PermissionStore.open(
+      database,
+      async (request) => {
+        const row = await database.get<{ value: string }>(
+          "SELECT value FROM moose_data WHERE key='skills'",
+        );
+        const skill = (row ? (JSON.parse(row.value) as Skill[]) : []).find(
+          (s) => s.id === request.skillId,
+        );
+        const title = await database.get<{ value: string }>(
+          "SELECT value FROM moose_data WHERE key=?",
+          `title:${request.conversationId}`,
+        );
+        return (
+          (!request.skillId || !!skill) &&
+          approvals.request(
+            request,
+            skill?.name ?? "Moose · 当前对话",
+            title
+              ? (JSON.parse(title.value) as string)
+              : `对话 ${request.conversationId}`,
+          )
+        );
+      },
+    );
+    engine = await MobileEngine.open(
+      database,
+      models,
+      defaultSettings,
+      Date.now,
+      termuxFactory ?? ((workspaceId) => createExpoWorkspace({ workspaceId })),
+      {
+        openDatabase: openCapabilityDatabase,
+        fetcher: nativeFetch as typeof fetch,
+        authorize: (...args) => permissions.authorize(...args),
+      },
+      { shell: !!termuxFactory },
+    );
+    const settings = await engine.read<ModelSettings>(
+      "settings",
+      defaultSettings,
+    );
+    engine.updateSettings(settings);
+    return {
+      engine,
+      models,
+      settings,
+      permissions,
+      executionEnvironment: termuxFactory ? "termux" : "local",
+    };
+  } catch (error) {
+    try {
+      if (engine) await engine.close();
+      else await database.close().catch(() => {});
+      await closeNative();
+    } catch (cleanup) {
+      try {
+        await closeNative();
+      } catch {}
+      throw new AggregateError(
+        [error, cleanup],
+        "初始化失败，运行时资源清理也失败，请重新打开应用",
+      );
+    }
+    throw error;
+  }
 }

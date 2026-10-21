@@ -34,7 +34,10 @@ import {
   s,
   type IconName,
 } from "./src/ui/kit";
+import { Artifacts, CapabilityApproval } from "./src/ui/Artifacts";
 import type { ChatMessage } from "./src/runtime/engine";
+import type { ActivityMessage } from "./src/ui/chat-activity";
+import { ActivityRow } from "./src/ui/ActivityRow";
 
 type Tab = "chat" | "tasks" | "skills" | "settings";
 const tabs: { id: Tab; label: string; icon: IconName }[] = [
@@ -62,9 +65,10 @@ function MooseApp() {
   const [tab, setTab] = useState<Tab>("chat");
   const [text, setText] = useState("");
   const [history, setHistory] = useState(false);
+  const [artifactsVisible, setArtifactsVisible] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const followBottom = useRef(true);
-  const list = useRef<FlatList<ChatMessage>>(null);
+  const list = useRef<FlatList<ActivityMessage>>(null);
   const title =
     moose.conversations.find((item) => item.id === moose.conversationId)
       ?.title ?? "新的对话";
@@ -112,23 +116,29 @@ function MooseApp() {
     }
   };
   const conversationMenu = () => {
+    const artifacts = () => {
+      void moose.refreshArtifacts();
+      setArtifactsVisible(true);
+    };
     const save = () => {
       void moose.checkpoint();
     };
     if (Platform.OS === "ios") {
       ActionSheetIOS.showActionSheetWithOptions(
         {
-          options: ["保存检查点", "取消"],
-          cancelButtonIndex: 1,
+          options: ["保存检查点", "文件与报告", "取消"],
+          cancelButtonIndex: 2,
           disabledButtonIndices: moose.busy ? [0] : [],
         },
         (index) => {
           if (index === 0 && !moose.busy) save();
+          if (index === 1) artifacts();
         },
       );
     } else {
       Alert.alert("对话", undefined, [
         ...(!moose.busy ? [{ text: "保存检查点", onPress: save }] : []),
+        { text: "文件与报告", onPress: artifacts },
         { text: "取消", style: "cancel" },
       ]);
     }
@@ -157,6 +167,12 @@ function MooseApp() {
           : ["top", "left", "right", "bottom"]
       }
     >
+      <CapabilityApproval approval={moose.approval} />
+      <Artifacts
+        moose={moose}
+        visible={artifactsVisible}
+        onClose={() => setArtifactsVisible(false)}
+      />
       <View style={a.shell}>
         <View style={a.header}>
           {tab === "chat" ? (
@@ -219,14 +235,24 @@ function MooseApp() {
             <Text selectable style={a.errorText}>
               {moose.error}
             </Text>
+            {!moose.runtime && (
+              <Button
+                secondary
+                label="重试打开"
+                busy={moose.working}
+                onPress={() => void moose.retryRuntime()}
+              />
+            )}
             <IconButton
               name="x"
               label="关闭提示"
-              onPress={() => moose.setError("")}
+              onPress={() => {
+                if (moose.runtime) moose.setError("");
+              }}
             />
           </View>
         )}
-        {!moose.runtime && !moose.error ? (
+        {!moose.runtime && !moose.error && !moose.working ? (
           <View
             style={{
               flex: 1,
@@ -246,7 +272,9 @@ function MooseApp() {
             <FlatList
               ref={list}
               data={moose.messages}
-              keyExtractor={(item, index) => `${item.entryId}:${index}`}
+              keyExtractor={(item, index) =>
+                item.activity?.id ?? `${item.entryId}:${index}`
+              }
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode={
                 Platform.OS === "ios" ? "interactive" : "on-drag"
@@ -286,56 +314,62 @@ function MooseApp() {
                   </View>
                 ) : undefined
               }
-              renderItem={({ item }) => (
-                <Pressable
-                  onLongPress={
-                    item.role === "user" ? () => messageMenu(item) : undefined
-                  }
-                  delayLongPress={400}
-                  accessible={item.role === "user"}
-                  accessibilityLabel={`${item.role === "user" ? "你" : "Moose"}：${item.text}`}
-                  accessibilityActions={
-                    item.role === "user" &&
-                    !moose.busy &&
-                    !moose.working &&
-                    !moose.pending &&
-                    moose.hasCredentials
-                      ? [{ name: "messageMenu", label: "消息选项" }]
-                      : undefined
-                  }
-                  onAccessibilityAction={({ nativeEvent }) => {
-                    if (nativeEvent.actionName === "messageMenu")
-                      messageMenu(item);
-                  }}
-                  style={[
-                    a.message,
-                    item.role === "user" ? a.userMessage : a.assistantMessage,
-                  ]}
-                >
-                  <Text
-                    selectable={item.role !== "user"}
+              renderItem={({ item }) =>
+                item.activity ? (
+                  <View style={[a.message, a.assistantMessage]}>
+                    <ActivityRow activity={item.activity} />
+                  </View>
+                ) : (
+                  <Pressable
+                    onLongPress={
+                      item.role === "user" ? () => messageMenu(item) : undefined
+                    }
+                    delayLongPress={400}
+                    accessible={item.role === "user"}
+                    accessibilityLabel={`${item.role === "user" ? "你" : "Moose"}：${item.text}`}
+                    accessibilityActions={
+                      item.role === "user" &&
+                      !moose.busy &&
+                      !moose.working &&
+                      !moose.pending &&
+                      moose.hasCredentials
+                        ? [{ name: "messageMenu", label: "消息选项" }]
+                        : undefined
+                    }
+                    onAccessibilityAction={({ nativeEvent }) => {
+                      if (nativeEvent.actionName === "messageMenu")
+                        messageMenu(item);
+                    }}
                     style={[
-                      a.messageText,
-                      item.error && { color: colors.danger },
+                      a.message,
+                      item.role === "user" ? a.userMessage : a.assistantMessage,
                     ]}
                   >
-                    {item.text || (item.error ? "回答中断" : "…")}
-                  </Text>
-                </Pressable>
-              )}
+                    <Text
+                      selectable={item.role !== "user"}
+                      style={[
+                        a.messageText,
+                        item.error && { color: colors.danger },
+                      ]}
+                    >
+                      {item.text || (item.error ? "回答中断" : "…")}
+                    </Text>
+                  </Pressable>
+                )
+              }
               ListFooterComponent={
-                moose.busy ? (
+                moose.busy || moose.activity.length ? (
                   <View style={[a.message, a.assistantMessage]}>
-                    {moose.partial ? (
+                    {moose.activity.map((activity) => (
+                      <ActivityRow
+                        key={`${moose.conversationId}:${activity.id}`}
+                        activity={activity}
+                      />
+                    ))}
+                    {!!moose.partial && moose.busy && (
                       <Text selectable style={a.messageText}>
                         {moose.partial}
                       </Text>
-                    ) : (
-                      <ActivityIndicator
-                        size="small"
-                        color={colors.muted}
-                        style={{ alignSelf: "flex-start" }}
-                      />
                     )}
                   </View>
                 ) : undefined
