@@ -75,6 +75,8 @@ Recurring tasks run immediately for the first iteration, with an interval of at 
 
 **Tasks primarily run in the foreground. Execution at an exact time is not guaranteed while the screen is locked or the app is suspended.** Reopening resumes from committed state. An overdue recurring task runs once before calculating its next interval, rather than replaying every missed iteration. This version has no remote execution host, cross-device synchronization, or persistent background service.
 
+See the [Android foreground agent feasibility study](docs/research/android-foreground-agent.md) for the proposed service architecture, limitations, and device acceptance tests. This capability is not implemented yet.
+
 Restoring a checkpoint creates a new branch from the corresponding historical message and preserves the original conversation.
 
 Skills support direct SKILL.md links and GitHub file, directory, or repository-root URLs. Installation downloads a Markdown file of at most 128 KiB. Skills are disabled by default. Enabling a skill adds its instructions to the current conversation. The model can read relative text reference files through the resource tool; the first network access requires authorization, and downloads are cached. Scripts are not executed. GitHub directory links must use a single-segment branch name or a commit SHA.
