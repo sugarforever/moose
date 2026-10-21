@@ -23,6 +23,7 @@ import {
 import { StatusBar } from "expo-status-bar";
 import { setToolsButtonVisible } from "expo-dev-client";
 import { useMoose } from "./src/ui/useMoose";
+import { useAndroidUpdates } from "./src/ui/updates";
 import { TasksScreen, SkillsScreen, SettingsScreen } from "./src/ui/screens";
 import {
   Button,
@@ -56,6 +57,7 @@ export default function App() {
 }
 function MooseApp() {
   const moose = useMoose();
+  const updates = useAndroidUpdates();
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<Tab>("chat");
   const [text, setText] = useState("");
@@ -200,6 +202,17 @@ function MooseApp() {
             <Text style={a.brandName}>moose</Text>
           )}
         </View>
+        {!!updates.state?.update && tab !== "settings" && (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setTab("settings")}
+            style={{ paddingHorizontal: 20, paddingVertical: 10 }}
+          >
+            <Text style={s.link}>
+              有新版本 {updates.state.update.version}，查看更新
+            </Text>
+          </Pressable>
+        )}
         {!!moose.error && (
           <View style={a.error}>
             <Icon name="alert-circle" size={16} color={colors.danger} />
@@ -387,7 +400,7 @@ function MooseApp() {
         ) : tab === "skills" ? (
           <SkillsScreen moose={moose} />
         ) : (
-          <SettingsScreen moose={moose} />
+          <SettingsScreen moose={moose} updates={updates.controller} />
         )}
         {!keyboardVisible && (
           <View style={a.tabs}>

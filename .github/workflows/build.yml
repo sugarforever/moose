@@ -22,6 +22,7 @@ jobs:
     env:
       CI: "1"
       EXPO_NO_TELEMETRY: "1"
+      MOOSE_BUILD_NUMBER: ${{ github.run_number }}
     steps:
       - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -53,7 +54,15 @@ jobs:
           npm run smoke:portable
 
       - name: Generate Android project
-        run: npx --no-install expo prebuild --platform android --no-install
+        env:
+          RELEASE_REF_TYPE: ${{ github.ref_type }}
+          RELEASE_REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$RELEASE_REF_TYPE" = "tag" ]; then
+            printf 'MOOSE_VERSION=%s\n' "${RELEASE_REF_NAME#v}" >> "$GITHUB_ENV"
+            export MOOSE_VERSION="${RELEASE_REF_NAME#v}"
+          fi
+          npx --no-install expo prebuild --platform android --no-install
 
       # Expo's generated release variant embeds JS/Hermes assets but uses its
       # debug keystore by default. This APK is for testing, not production signing.
@@ -61,11 +70,16 @@ jobs:
         working-directory: android
         run: ./gradlew :app:assembleRelease --no-daemon --max-workers=2
 
+      - name: Generate update manifest
+        run: node scripts/android-release.mjs android/app/build/outputs/apk/release/app-release.apk
+
       - name: Upload APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: moose-android-test-${{ github.run_number }}
-          path: android/app/build/outputs/apk/release/*.apk
+          path: |
+            android/app/build/outputs/apk/release/*.apk
+            android/app/build/outputs/apk/release/moose-update.json
           if-no-files-found: error
           retention-days: 14
 
@@ -75,6 +89,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" android/app/build/outputs/apk/release/*.apk \
+            android/app/build/outputs/apk/release/moose-update.json \
             --verify-tag --prerelease --title "Moose $GITHUB_REF_NAME (Android preview)" \
             --notes "Android preview APK with embedded JS/Hermes assets; no Metro required. Uses the default test signing key. iOS is not included. Model access requires your own credentials. Native installation and startup have not yet been verified on an Android device."
 

@@ -19,6 +19,8 @@ import {
   s,
 } from "./kit";
 import type { Moose } from "./useMoose";
+import { AndroidUpdates } from "./updates";
+import type { UpdateController } from "../updates/controller";
 
 export function TasksScreen({ moose }: { moose: Moose }) {
   const [prompt, setPrompt] = useState("");
@@ -226,7 +228,13 @@ export function SkillsScreen({ moose }: { moose: Moose }) {
   );
 }
 
-export function SettingsScreen({ moose }: { moose: Moose }) {
+export function SettingsScreen({
+  moose,
+  updates,
+}: {
+  moose: Moose;
+  updates?: UpdateController;
+}) {
   const [provider, setProvider] = useState(moose.settings.provider);
   const [model, setModel] = useState(moose.settings.modelId);
   const [key, setKey] = useState("");
@@ -242,6 +250,10 @@ export function SettingsScreen({ moose }: { moose: Moose }) {
         <Text style={s.heading}>设置</Text>
       </View>
       {provider === "openai-codex" && <ChatGPTConnection moose={moose} />}
+      <AndroidUpdates
+        controller={updates}
+        blocked={moose.busy || moose.working}
+      />
       <Card>
         <View style={s.row}>
           {["openai", "anthropic", "openai-codex"].map((id) => (

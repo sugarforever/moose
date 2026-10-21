@@ -4,6 +4,7 @@ dist/
 coverage/
 ios/
 android/
+!modules/moose-updates/android/
 .env*
 *.sqlite*
 src/generated/

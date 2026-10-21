@@ -47,6 +47,12 @@ Android USB 连接不到开发服务器时，可执行 `adb reverse tcp:8081 tcp
 
 当前 APK 使用 Expo 生成项目的默认测试签名，只供内测。正式公开分发前需配置独立的长期签名密钥；切换签名可能需要卸载旧测试包，卸载会删除本地对话和文件。iOS job 通过 `if: false` 明确跳过，不构建 IPA 或上传 TestFlight。
 
+## Android 应用内更新
+
+带有更新功能的 Android 安装包会在启动或回到前台时检查 GitHub Releases，两次自动检查至少间隔六小时。设置中的“应用更新”可手动检查、查看更新说明、下载或取消。下载后校验 SHA-256、包名、签名和版本，再由用户在系统界面确认安装；首次可能需要允许 Moose 安装应用。应用不会自动重启或静默安装。
+
+更新发布需要 APK 和同一构建生成的 `moose-update.json`。标签工作流会同时发布二者，版本名来自标签，Android `versionCode` 来自工作流运行编号。旧版需要先手动安装一次带更新功能的 APK。当前仍使用测试签名；正式签名迁移不在本次范围。iOS 不展示此入口，尚未接入 TestFlight 或 OTA。设计、验证记录和限制见 [Android 更新说明](docs/android-updates.md)。
+
 ## 连接模型
 
 打开「设置」，通过品牌图标选择服务、模型并保存。OpenAI 显示文字标志，Anthropic 显示 AI 标志，ChatGPT 显示结形标志。
