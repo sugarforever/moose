@@ -1,6 +1,6 @@
 # Moose
 
-Moose v0.4.2 is an open source AI agent for iOS and Android powered by Pi Durable. Expo / React Native provides the interface, Pi Durable runs on the phone's Hermes runtime, and SQLite stores conversations and tasks. Model requests go directly to the provider; no Moose backend is required.
+Moose v0.4.3 is an open source AI agent for iOS and Android powered by Pi Durable. Expo / React Native provides the interface, Pi Durable runs on the phone's Hermes runtime, and SQLite stores conversations and tasks. Model requests go directly to the provider; no Moose backend is required.
 
 ## Features
 
@@ -11,7 +11,7 @@ Moose v0.4.2 is an open source AI agent for iOS and Android powered by Pi Durabl
 - Default file tools from `pi-durable-expo-env`: `read`, `write`, `edit`, and `workspace_list`. Each conversation has a private workspace on the device.
 - Optional experimental Termux file and command execution on Android, with in-app setup and connection. Native Termux device validation is still pending; see [setup and limitations](docs/termux.md).
 - OpenAI / Anthropic API keys and experimental ChatGPT / Codex subscription sign-in.
-- Compact conversations, native message action menus, and keyboard avoidance. Assistant replies render Markdown headings, lists, quotes, code blocks, links, and horizontally scrollable tables.
+- Compact conversations, native message action menus, keyboard avoidance, and phone rotation between portrait and landscape. Assistant replies render Markdown headings, lists, quotes, code blocks, links, and horizontally scrollable tables.
 
 ## Local development
 
@@ -29,6 +29,8 @@ npm run android -- --device
 ```
 
 The first run builds and installs a native development client. **Expo Go is not supported**, because browser subscription sign-in depends on a custom native TCP module.
+
+Orientation is native configuration. Existing development clients need `npx expo prebuild`, followed by `npm run ios` or `npm run android` to rebuild and reinstall. Fast Refresh or a JavaScript update alone cannot unlock an older portrait-only client. Rotation follows the device's system orientation lock.
 
 After installing the development client, start the development server with:
 

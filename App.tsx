@@ -483,6 +483,7 @@ function MooseApp() {
           visible={history}
           animationType="slide"
           presentationStyle="pageSheet"
+          supportedOrientations={["portrait", "landscape"]}
           onRequestClose={() => setHistory(false)}
         >
           <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -567,8 +568,14 @@ const a = StyleSheet.create({
   },
   assistantMessage: { alignSelf: "stretch", paddingVertical: 2 },
   messageText: { fontSize: 16, lineHeight: 23, color: colors.ink },
-  composerArea: { paddingHorizontal: 12, paddingTop: 6, paddingBottom: 6 },
+  composerArea: {
+    flexShrink: 1,
+    paddingHorizontal: 12,
+    paddingTop: 6,
+    paddingBottom: 6,
+  },
   composer: {
+    flexShrink: 1,
     backgroundColor: "#fff",
     borderRadius: 28,
     padding: 10,
@@ -586,6 +593,7 @@ const a = StyleSheet.create({
     color: colors.muted,
   },
   input: {
+    flexShrink: 1,
     minHeight: 44,
     maxHeight: 140,
     paddingTop: 8,
