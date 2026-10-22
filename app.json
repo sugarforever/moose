@@ -2,7 +2,7 @@
   "expo": {
     "name": "Moose",
     "slug": "moose-mobile",
-    "version": "0.5.0",
+    "version": "0.6.0",
     "scheme": "moose",
     "orientation": "default",
     "userInterfaceStyle": "light",
