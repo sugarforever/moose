@@ -136,7 +136,7 @@ it("runs genuine tools through Moose, persists files, isolates conversations and
   const first = await engine.newConversation("Files");
   expect(
     (await first.agent(engine.context)).tools.map((t) => t.name).sort(),
-  ).toEqual(["edit", "read", "workspace_list", "write"]);
+  ).toEqual(["edit", "read", "skill_workspace", "workspace_list", "write"]);
   const observed: string[] = [];
   const detach = await engine.watch(Number(first.id), (view) => {
     observed.push(
@@ -387,7 +387,7 @@ it("advertises bash only for an explicitly selected shell environment", async ()
   const chat = await engine.newConversation("Termux");
   expect(
     (await chat.agent(engine.context)).tools.map((t) => t.name).sort(),
-  ).toEqual(["bash", "edit", "read", "write"]);
+  ).toEqual(["bash", "edit", "read", "skill_workspace", "write"]);
   expect((await chat.agent(engine.context)).instructions).not.toContain(
     "Shell, script execution",
   );
@@ -439,4 +439,167 @@ it("uses real Termux bash and file tools together through a controlled model", a
       "utf8",
     ),
   ).toBe("hello");
+});
+
+it("copies an enabled Skill bundle into fresh workspace directories with binary files intact", async () => {
+  const { root, factory, faux, models, settings } = await fixture();
+  const engine = await MobileEngine.open(
+    database(join(root, "bundle.sqlite")),
+    models,
+    settings,
+    Date.now,
+    factory,
+  );
+  cleanup.push(() => engine.close());
+  const skill = {
+    id: "bundle",
+    name: "Bundled",
+    description: "",
+    instructions: "Use files",
+    source: "https://example.com/SKILL.md",
+    installedAt: 0,
+    files: [
+      { path: "SKILL.md", size: 9, base64: "VXNlIGZpbGVz" },
+      { path: "scripts/run.sh", size: 12, base64: "ZWNobyB3b3JraW5n" },
+      { path: "assets/data.bin", size: 3, base64: "AP8B" },
+    ],
+  };
+  await engine.installSkill(skill);
+  const chat = await engine.newConversation();
+  const run = async (id: string) => {
+    faux.setResponses([
+      call("skill_workspace", { skillId: "bundle" }),
+      fauxAssistantMessage("Done"),
+    ]);
+    await (await engine.submit(chat.id, "Copy skill", id)).wait(engine.context);
+    return (await chat.context(engine.context)).entries
+      .flatMap((e) => e.model ?? [])
+      .filter((m) => m.role === "toolResult");
+  };
+  const disabled = await run("disabled");
+  expect(disabled.at(-1)).toMatchObject({ isError: true });
+  await engine.toggleSkill(chat.id, "bundle");
+  const results = await run("enabled");
+  const result = results.at(-1)!;
+  expect(result.isError).toBeFalsy();
+  const text = result.content
+    .filter((c) => c.type === "text")
+    .map((c) => c.text)
+    .join("");
+  const output = JSON.parse(text);
+  expect(output.directory).not.toMatch(/^\//);
+  expect(
+    await fs.readFile(
+      join(root, `moose-chat-${chat.id}`, output.directory, "scripts/run.sh"),
+      "utf8",
+    ),
+  ).toBe("echo working");
+  expect([
+    ...(await fs.readFile(
+      join(root, `moose-chat-${chat.id}`, output.directory, "assets/data.bin"),
+    )),
+  ]).toEqual([0, 255, 1]);
+  const again = await run("fresh");
+  const secondText = again
+    .at(-1)!
+    .content.filter((c) => c.type === "text")
+    .map((c) => c.text)
+    .join("");
+  expect(JSON.parse(secondText).directory).not.toBe(output.directory);
+  await engine.uninstallSkill("bundle");
+  expect((await run("uninstalled")).at(-1)).toMatchObject({ isError: true });
+});
+
+it("executes an installed Skill script with relative references through real Termux transport", async () => {
+  const { startService } = await import("../components/termux-service/server");
+  const { TermuxEnvironment, signedTransport } =
+    await import("../src/termux/environment");
+  const { ed25519 } = await import("@noble/curves/ed25519.js");
+  const { root, models, settings, faux } = await fixture();
+  const seed = new Uint8Array(32).fill(5);
+  const service = await startService({
+    root: join(root, "termux"),
+    publicKey: ed25519.getPublicKey(seed),
+    port: 0,
+  });
+  cleanup.push(() => service.close());
+  const rpc = signedTransport(service.url, seed, fetch, () =>
+    crypto.randomUUID(),
+  );
+  const engine = await MobileEngine.open(
+    database(join(root, "bundle-shell.sqlite")),
+    models,
+    settings,
+    Date.now,
+    (id) => new TermuxEnvironment(id, rpc),
+    undefined,
+    { shell: true },
+  );
+  cleanup.push(() => engine.close());
+  const script = 'cat "$(dirname "$0")/../references/message.txt"';
+  await engine.installSkill({
+    id: "shell-bundle",
+    name: "Script",
+    description: "",
+    instructions: "Use script",
+    source: "https://example.com/SKILL.md",
+    installedAt: 0,
+    files: [
+      { path: "SKILL.md", base64: "VXNlIHNjcmlwdA==", size: 10 },
+      {
+        path: "scripts/run.sh",
+        base64: Buffer.from(script).toString("base64"),
+        size: Buffer.byteLength(script),
+      },
+      {
+        path: "references/message.txt",
+        base64: "SGVsbG8gZnJvbSBTa2lsbA==",
+        size: 16,
+      },
+    ],
+  });
+  const chat = await engine.newConversation();
+  await engine.toggleSkill(chat.id, "shell-bundle");
+  faux.setResponses([
+    call("skill_workspace", { skillId: "shell-bundle" }),
+    fauxAssistantMessage("Copied"),
+  ]);
+  await (
+    await engine.submit(chat.id, "Prepare files", "copy")
+  ).wait(engine.context);
+  const result = (await chat.context(engine.context)).entries
+    .flatMap((e) => e.model ?? [])
+    .find((m) => m.role === "toolResult" && m.toolName === "skill_workspace");
+  expect(result).toMatchObject({ isError: false });
+  if (!result || result.role !== "toolResult")
+    throw new Error("No copy result");
+  const output = JSON.parse(
+    result.content
+      .filter((c) => c.type === "text")
+      .map((c) => c.text)
+      .join(""),
+  );
+  expect(output.directory).toMatch(/^moose-skill-[a-f0-9]+$/);
+  faux.setResponses([
+    call("bash", {
+      command: `bash ${output.directory}/scripts/run.sh > skill-result.txt`,
+    }),
+    call("read", { path: "skill-result.txt" }),
+    fauxAssistantMessage("Executed"),
+  ]);
+  await (
+    await engine.submit(chat.id, "Run installed script", "execute")
+  ).wait(engine.context);
+  expect(
+    await fs.readFile(
+      join(
+        root,
+        "termux",
+        "workspaces",
+        `moose-chat-${chat.id}`,
+        "skill-result.txt",
+      ),
+      "utf8",
+    ),
+  ).toBe("Hello from Skill");
 });

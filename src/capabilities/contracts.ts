@@ -136,7 +136,7 @@ export const schemas = {
   skill_resource_read: object({
     skillId,
     path: text(512),
-    offset: Type.Optional(Type.Integer({ minimum: 0, maximum: 128 * 1024 })),
+    offset: Type.Optional(Type.Integer({ minimum: 0, maximum: 512 * 1024 })),
   }),
 } as const;
 export type ToolName = keyof typeof schemas;
@@ -165,7 +165,7 @@ export const descriptions: Record<ToolName, string> = {
   artifact_create:
     "Persist immutable HTML/text (max 512 KiB) and return an artifact reference. User opens the conversation artifact list to preview/share; this tool never shares automatically.",
   skill_resource_read:
-    "Read an enabled skill's installed SKILL.md or a relative .md/.txt/.json/.html/.csv template/reference. Remote text needs an origin grant and is cached; no scripts execute.",
+    "Read UTF-8 text from an enabled Skill's installed folder, including script source. Binary files are available via skill_workspace. Legacy direct-file imports support relative .md/.txt/.json/.html/.csv downloads with an origin grant. Reading does not execute scripts.",
 };
 export class CapabilityError extends Error {
   constructor(

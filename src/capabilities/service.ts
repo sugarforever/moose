@@ -1,3 +1,4 @@
+import { fileText, validSkillPath } from "../skills/bundle";
 import { Check } from "typebox/value";
 import type {
   SqliteDatabase,
@@ -428,6 +429,23 @@ export class CapabilityService {
               ...this.page(skill.instructions, args),
               source: "installed",
             };
+          if (skill.files) {
+            if (!validSkillPath(path))
+              fail("validation", "Invalid installed resource path");
+            const file = skill.files.find((f) => f.path === path);
+            if (!file)
+              return fail(
+                "validation",
+                "File is not in the installed Skill folder",
+              );
+            const text = fileText(file);
+            if (text === undefined)
+              return fail(
+                "validation",
+                "Binary resource; use skill_workspace for exact file bytes",
+              );
+            return { path, ...this.page(text, args), source: "installed" };
+          }
           if (
             !/^(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_.-]+\.(md|txt|json|html|csv)$/.test(
               path,
