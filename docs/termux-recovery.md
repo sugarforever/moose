@@ -29,3 +29,15 @@ EXPO_PUBLIC_MOOSE_TERMUX_RECOVERY_SMOKE=1 npx expo start --dev-client
 ```
 
 The probe uses `termux-recovery-smoke.sqlite`, fake model credentials and controlled SSE, and creates real conversation workspaces inside Termux. Tap **Connect Termux**, then **Run controlled tools**. Switch to Home and return through the Activity; run tools again. Identify and stop only the idle Moose companion Node process in the emulator, then tap **Check without repair** to establish the offline failure. Switch away and back, and run tools again without tapping Connect. Repeat service loss while remaining visible and run tools directly to check admission repair. Never kill arbitrary Termux processes or interrupt a real command merely to test recovery. Unknown external effects require owner inspection; this probe never acknowledges receipts.
+
+## Physical Xiaomi observation on 2026-10-22
+
+The user subsequently reported another chat timeout on the released v0.3.0. Wireless ADB connected to Xiaomi model `23127PN0CC` (`houji`); installed Moose version was `0.3.0`, versionCode `9`. The PR build was not installed on the phone.
+
+Before repair, Termux PID `9420`, Moose PID `12332`, and companion Node PID `19690` were present. Loopback port `18765` was listening with receive queue `2`. An ADB-forwarded unauthenticated GET timed out twice after five seconds without HTTP headers. This GET cannot execute a tool; a responsive service rejects it with HTTP 403.
+
+Xiaomi system log records at phone time `10:47:24` through `10:48:00` explicitly reported `ActionExecute: frozen uid = 10387 reason=check binder`, with `delayFreeze true reason= screen off uid=10387`. UID `10387` belonged to Termux. Standard Android process diagnostics reported `isFrozen=false` and Termux's foreground service was still present; those standard flags therefore did not establish that the companion was runnable. The phone subsequently reported Awake while the HTTP probe still timed out.
+
+Opening only Termux's existing Activity restored HTTP 403 in `0.183275` seconds. Node PID remained `19690`; Termux and Moose PIDs also remained unchanged. No installer, reconnect action, signed model tool, shell command inside Termux, receipt acknowledgement, or failed-chat retry was run. This captures an alive but unresponsive companion that resumes on foregrounding Termux, strongly supporting Xiaomi freezing as the cause of the observed service outage. The exact original chat failure time and its per-request diagnostics were not captured, so do not claim complete reconstruction of that earlier request.
+
+This is physical-device evidence for the outage mechanism and a foregrounding workaround. It is not physical-device validation of this PR's automatic recovery against Xiaomi freezing. The earlier emulator service-loss test remains separate evidence; ordinary emulator app switching did not reproduce this OEM behavior.
