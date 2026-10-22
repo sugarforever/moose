@@ -1,3 +1,4 @@
+import { readyExecution } from "../termux/recovery";
 import { acquireBackground, setApprovalWaiting } from "./background";
 import { createExpoWorkspace } from "pi-durable-expo-env";
 import { openDatabaseAsync } from "expo-sqlite";
@@ -111,7 +112,7 @@ export async function openMobile() {
         authorize: (...args) => permissions.authorize(...args),
       },
       { shell: !!termuxFactory },
-      acquireBackground,
+      readyExecution(acquireBackground, termux.ensureReady),
     );
     const settings = await engine.read<ModelSettings>(
       "settings",
