@@ -1,3 +1,4 @@
+import { skillWorkspaceTool } from "./skill-workspace";
 import type { ExecutionGuard } from "./execution-owner";
 import { executionRequestKey } from "./execution-request";
 import { withContextValue } from "@earendil-works/chord/context";
@@ -261,6 +262,13 @@ export class MobileEngine {
         (s) => selected.includes(s.id),
       );
     };
+    if (files)
+      registry.install(
+        defineExtension({
+          name: "moose.skill-files",
+          tools: [skillWorkspaceTool(enabledSkills)],
+        }),
+      );
     const capabilities = capabilityOptions
       ? new CapabilityService({ ...capabilityOptions, skills: enabledSkills })
       : undefined;

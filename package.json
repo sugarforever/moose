@@ -1,6 +1,6 @@
 {
   "name": "moose-mobile",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "main": "index.ts",
   "scripts": {
@@ -35,6 +35,7 @@
     "expo-sqlite": "~58.0.13",
     "expo-status-bar": "~58.0.3",
     "expo-web-browser": "~58.0.6",
+    "markdown-it": "15.0.3",
     "moose-termux-native": "file:vendor/moose-termux-native",
     "pi-durable-expo-env": "0.1.0",
     "react": "19.3.0",

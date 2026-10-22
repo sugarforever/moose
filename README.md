@@ -1,6 +1,6 @@
 # Moose
 
-Moose v0.3.0 is an open source AI agent for iOS and Android powered by Pi Durable. Expo / React Native provides the interface, Pi Durable runs on the phone's Hermes runtime, and SQLite stores conversations and tasks. Model requests go directly to the provider; no Moose backend is required.
+Moose v0.4.0 is an open source AI agent for iOS and Android powered by Pi Durable. Expo / React Native provides the interface, Pi Durable runs on the phone's Hermes runtime, and SQLite stores conversations and tasks. Model requests go directly to the provider; no Moose backend is required.
 
 ## Features
 
@@ -11,7 +11,7 @@ Moose v0.3.0 is an open source AI agent for iOS and Android powered by Pi Durabl
 - Default file tools from `pi-durable-expo-env`: `read`, `write`, `edit`, and `workspace_list`. Each conversation has a private workspace on the device.
 - Optional experimental Termux file and command execution on Android, with in-app setup and connection. Native Termux device validation is still pending; see [setup and limitations](docs/termux.md).
 - OpenAI / Anthropic API keys and experimental ChatGPT / Codex subscription sign-in.
-- Compact conversations, native message action menus, and keyboard avoidance.
+- Compact conversations, native message action menus, and keyboard avoidance. Assistant replies render Markdown headings, lists, quotes, code blocks, links, and horizontally scrollable tables.
 
 ## Local development
 
@@ -83,7 +83,9 @@ Android protects user-initiated finite runs with a bounded foreground service; s
 
 Restoring a checkpoint creates a new branch from the corresponding historical message and preserves the original conversation.
 
-Skills support direct SKILL.md links and GitHub file, directory, or repository-root URLs. Installation downloads a Markdown file of at most 128 KiB. Skills are disabled by default. Enabling a skill adds its instructions to the current conversation. The model can read relative text reference files through the resource tool; the first network access requires authorization, and downloads are cached. Scripts are not executed. GitHub directory links must use a single-segment branch name or a commit SHA.
+Skills support direct SKILL.md links and GitHub file, directory, or repository-root URLs. GitHub folders install a complete snapshot pinned to one commit: instructions, scripts, references, and binary assets, preserving relative paths. Limits are 128 files, 512 KiB per file (SKILL.md: 128 KiB), and 4 MiB total. Symlinks and submodules are rejected. GitHub folder refs must be a single-segment branch name or commit SHA. Direct SKILL.md links keep single-file imports.
+
+Skills are disabled by default. Enable one for the current conversation; only its instructions enter the initial context. **View files** shows its installed file list, sizes, commit, and selectable text previews; binary files show their size. The model can read installed text offline with `skill_resource_read` or copy the complete bundle into a fresh conversation-workspace directory with `skill_workspace`. Bash can run scripts from that directory when Termux is selected and required interpreters/dependencies are installed. Installation never runs scripts or installs dependencies. Local mode supports files but cannot run commands. Uninstall disables the Skill and removes its installed bundle; workspace copies remain conversation files. Legacy single-file imports retain authorized, cached remote text reads. See [Skill folders](docs/skill-folders.md).
 
 ## Conversation file workspaces
 
