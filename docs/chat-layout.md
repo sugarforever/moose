@@ -19,3 +19,15 @@ The chat projects committed tool results and pi.live into compact status rows. Q
 Tool results stay at their transcript entry positions after completion or reopening, including failed calls. Live slots that already have a committed result are omitted to prevent duplicate rows. Transient state is cleared when changing conversations; the existing disposed watcher guard rejects late updates. No new event log, persistence format, provider behavior or scheduler is introduced. Nested progress is transient; durable top-level tool results supply the history.
 
 Validation on 2026-10-21: projection regressions plus real Harness/file-tool/SQLite reopen coverage; browser preview of the actual ActivityRow component confirmed collapsed output, expansion and error output. Native compilation and simulator/device interactions were not performed for this change. No real model requests or account authorization were used. Full command results are recorded in the PR.
+
+## Android composer, v0.4.2
+
+The composer follows the supplied Codex mobile reference: a white rounded panel with a full-width multiline draft above a separate row for model identity and the send/stop control. It remains in normal layout below the message list and above the keyboard. The existing 44-point controls and 140-point scrollable draft limit remain. Do not add attachment or permission controls before those features exist.
+
+Android now explicitly uses KeyboardAvoidingView padding, as iOS already does. Relying only on window resizing left the composer behind the IME on the edge-to-edge Android layout. Keep the top safe-area coordinate offset; hide tabs and omit the bottom safe-area inset while typing.
+
+References: [React Native KeyboardAvoidingView](https://reactnative.dev/docs/keyboardavoidingview), [Android keyboard insets](https://developer.android.com/develop/ui/views/layout/sw-keyboard), [Telegram multiline input](https://telegram.org/blog/welcome-messages-buttons-TG-13). The supplied Codex screenshot is the visual source; Telegram also keeps long-form editing in the message composer.
+
+Regression: open a chat and its software keyboard, then run `python3 scripts/check-android-composer.py emulator-5554`. This inspects the actual IME top and accessibility bounds, asserting both draft and send button are visible above the keyboard and tabs are hidden. It failed before the fix (draft bottom 2376, IME top 1499) and passed afterward. No messages are sent. Also inspect long drafts, keyboard dismissal, and reopening manually.
+
+Expo Doctor excludes the three repository-owned native modules from public-directory metadata checks because that directory does not catalog local modules. It excludes react-native-tcp-socket's existing new-architecture metadata warning; the dependency is unchanged, and native build/protocol validation remains necessary. These exclusions do not suppress SDK version checks. The SDK patch mismatches found during this change were corrected.

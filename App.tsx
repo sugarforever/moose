@@ -266,7 +266,7 @@ function MooseApp() {
           </View>
         ) : tab === "chat" ? (
           <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            behavior="padding"
             keyboardVerticalOffset={insets.top}
             style={{ flex: 1 }}
           >
@@ -399,31 +399,38 @@ function MooseApp() {
                   style={a.input}
                   editable={!moose.working}
                 />
-                {moose.busy ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Stop response"
-                    onPress={() => void moose.stop()}
-                    style={a.send}
-                  >
-                    <Icon name="square" size={17} color="#fff" />
-                  </Pressable>
-                ) : (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Send message"
-                    disabled={!canSubmit}
-                    onPress={submit}
-                    style={[
-                      a.send,
-                      !canSubmit && {
-                        opacity: 0.35,
-                      },
-                    ]}
-                  >
-                    <Icon name="arrow-up" size={21} color="#fff" />
-                  </Pressable>
-                )}
+                <View style={a.composerActions}>
+                  {moose.hasCredentials && (
+                    <Text numberOfLines={1} style={a.composerModel}>
+                      {moose.settings.modelId}
+                    </Text>
+                  )}
+                  {moose.busy ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Stop response"
+                      onPress={() => void moose.stop()}
+                      style={a.send}
+                    >
+                      <Icon name="square" size={17} color="#fff" />
+                    </Pressable>
+                  ) : (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Send message"
+                      disabled={!canSubmit}
+                      onPress={submit}
+                      style={[
+                        a.send,
+                        !canSubmit && {
+                          opacity: 0.35,
+                        },
+                      ]}
+                    >
+                      <Icon name="arrow-up" size={21} color="#fff" />
+                    </Pressable>
+                  )}
+                </View>
               </View>
             </View>
           </KeyboardAvoidingView>
@@ -562,30 +569,37 @@ const a = StyleSheet.create({
   messageText: { fontSize: 16, lineHeight: 23, color: colors.ink },
   composerArea: { paddingHorizontal: 12, paddingTop: 6, paddingBottom: 6 },
   composer: {
-    borderWidth: 1,
-    borderColor: "#D9E1D5",
     backgroundColor: "#fff",
-    borderRadius: 23,
-    flexDirection: "row",
-    alignItems: "flex-end",
-    padding: 2,
+    borderRadius: 28,
+    padding: 10,
     gap: 4,
   },
+  composerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 12,
+  },
+  composerModel: {
+    flexShrink: 1,
+    fontSize: 13,
+    color: colors.muted,
+  },
   input: {
-    flex: 1,
     minHeight: 44,
     maxHeight: 140,
-    paddingTop: 12,
-    paddingBottom: 12,
+    paddingTop: 8,
+    paddingBottom: 8,
     paddingHorizontal: 10,
-    fontSize: 15,
+    textAlignVertical: "top",
+    fontSize: 16,
     color: colors.ink,
   },
   send: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: colors.green,
+    backgroundColor: colors.ink,
     alignItems: "center",
     justifyContent: "center",
   },
