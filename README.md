@@ -11,7 +11,7 @@ Moose v0.3.0 is an open source AI agent for iOS and Android powered by Pi Durabl
 - Default file tools from `pi-durable-expo-env`: `read`, `write`, `edit`, and `workspace_list`. Each conversation has a private workspace on the device.
 - Optional experimental Termux file and command execution on Android, with in-app setup and connection. Native Termux device validation is still pending; see [setup and limitations](docs/termux.md).
 - OpenAI / Anthropic API keys and experimental ChatGPT / Codex subscription sign-in.
-- Compact conversations, native message action menus, and keyboard avoidance.
+- Compact conversations, native message action menus, and keyboard avoidance. Assistant replies render Markdown headings, lists, quotes, code blocks, links, and horizontally scrollable tables.
 
 ## Local development
 
