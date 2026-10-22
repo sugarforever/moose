@@ -1,3 +1,4 @@
+import { observeTermuxRecovery } from "../termux/recovery";
 import {
   useCallback,
   useEffect,
@@ -193,13 +194,25 @@ export function useMoose() {
   }, [runtime, conversationId, run]);
   useEffect(() => {
     if (!runtime) return;
+    const stopRecovery = observeTermuxRecovery(
+      AppState,
+      termux.ensureReady,
+      (cause) => {
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "Check or repair Termux in Settings.",
+        );
+      },
+    );
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active")
+      if (state === "active") {
         void run(async () => {
           const ready = await credentials.has(settings.provider);
           setHasCredentials(ready);
           await refresh(runtime.engine);
         });
+      }
     });
     // Views subscribe to state; foreground transitions never reopen or resume a Harness.
     const timer = setInterval(() => {
@@ -216,6 +229,7 @@ export function useMoose() {
         })().catch(() => {});
     }, 3000);
     return () => {
+      stopRecovery();
       subscription.remove();
       clearInterval(timer);
     };

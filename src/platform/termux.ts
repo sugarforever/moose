@@ -44,10 +44,26 @@ function native(): Bridge {
   return bridge;
 }
 let serial: Promise<unknown> = Promise.resolve();
-const exclusive = <T>(operation: () => Promise<T>): Promise<T> => {
-  const result = serial.then(operation);
+const exclusive = <T>(
+  operation: () => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> => {
+  const result = serial.then(() => {
+    signal?.throwIfAborted();
+    return operation();
+  });
   serial = result.catch(() => {});
-  return result;
+  if (!signal) return result;
+  // Cancelling a waiter must not unlock a still-running predecessor.
+  return new Promise<T>((resolve, reject) => {
+    const abort = () =>
+      reject(signal.reason ?? new Error("Termux recovery cancelled"));
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+    void result
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", abort));
+  });
 };
 async function readSeed() {
   const saved = await SecureStore.getItemAsync(SEED);
@@ -57,6 +73,63 @@ async function readSeed() {
     keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
   });
   return seed;
+}
+async function checkOrRepair(
+  signal: AbortSignal,
+  onPhase: (phase: SetupPhase) => void,
+  timeoutMs?: number,
+) {
+  signal.throwIfAborted();
+  const seed = await readSeed();
+  const rpc = signedTransport(
+    URL,
+    seed,
+    nativeFetch as typeof fetch,
+    randomUUID,
+    termuxDiagnostics.record,
+  );
+  const probe = async (probeSignal: AbortSignal): Promise<ProbeResult> => {
+    const context = withAbortSignal(probeSignal, BACKGROUND_CONTEXT);
+    try {
+      const info = await rpc(
+        "connection-check",
+        "/workspace",
+        "serviceInfo",
+        [],
+        context,
+      );
+      if (!info.ok || info.value.protocol !== 1 || !info.value.buildHash)
+        return {
+          kind: "incompatible",
+          message: "Unrecognized service version",
+        };
+      const env = new TermuxEnvironment("connection-check", rpc);
+      const connected = await env.connect(context);
+      if (!connected.ok) throw connected.error;
+      await env.cleanup(context);
+      return { kind: "ready", hash: info.value.buildHash };
+    } catch (error) {
+      if (probeSignal.aborted) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        (error instanceof TermuxTransportError &&
+          ["rejected", "protocol", "service"].includes(error.kind)) ||
+        /rejected|Unsupported operation|Unexpected token|JSON/.test(message)
+      )
+        return { kind: "incompatible", message };
+      return { kind: "offline" };
+    }
+  };
+  const setup = new TermuxSetup({ native: native(), probe, timeoutMs });
+  const started = Date.now();
+  await setup.run(hex(ed25519.getPublicKey(seed)), signal, (phase) => {
+    termuxDiagnostics.record({
+      op: `setup.${phase}`,
+      result: "stage",
+      elapsedMs: Date.now() - started,
+    });
+    onPhase(phase);
+  });
 }
 export const termuxSetupCommand =
   "mkdir -p ~/.termux && printf '\\nallow-external-apps = true\\n' >> ~/.termux/termux.properties && termux-reload-settings";
@@ -94,61 +167,7 @@ export const termux = {
         throw new Error("Termux is only supported on Android");
       const previous = await SecureStore.getItemAsync(ENABLED);
       if (enabled) {
-        const seed = await readSeed();
-        const rpc = signedTransport(
-          URL,
-          seed,
-          nativeFetch as typeof fetch,
-          randomUUID,
-          termuxDiagnostics.record,
-        );
-        const probe = async (
-          probeSignal: AbortSignal,
-        ): Promise<ProbeResult> => {
-          const context = withAbortSignal(probeSignal, BACKGROUND_CONTEXT);
-          try {
-            const info = await rpc(
-              "connection-check",
-              "/workspace",
-              "serviceInfo",
-              [],
-              context,
-            );
-            if (!info.ok || info.value.protocol !== 1 || !info.value.buildHash)
-              return {
-                kind: "incompatible",
-                message: "Unrecognized service version",
-              };
-            const env = new TermuxEnvironment("connection-check", rpc);
-            const connected = await env.connect(context);
-            if (!connected.ok) throw connected.error;
-            await env.cleanup(context);
-            return { kind: "ready", hash: info.value.buildHash };
-          } catch (error) {
-            if (probeSignal.aborted) throw error;
-            const message =
-              error instanceof Error ? error.message : String(error);
-            if (
-              (error instanceof TermuxTransportError &&
-                ["rejected", "protocol", "service"].includes(error.kind)) ||
-              /rejected|Unsupported operation|Unexpected token|JSON/.test(
-                message,
-              )
-            )
-              return { kind: "incompatible", message };
-            return { kind: "offline" };
-          }
-        };
-        const setup = new TermuxSetup({ native: native(), probe });
-        const started = Date.now();
-        await setup.run(hex(ed25519.getPublicKey(seed)), signal, (phase) => {
-          termuxDiagnostics.record({
-            op: `setup.${phase}`,
-            result: "stage",
-            elapsedMs: Date.now() - started,
-          });
-          onPhase(phase);
-        });
+        await checkOrRepair(signal, onPhase);
       }
       signal.throwIfAborted();
       await SecureStore.setItemAsync(ENABLED, enabled ? "yes" : "no");
@@ -157,6 +176,36 @@ export const termux = {
         signal.throwIfAborted();
       }
     }),
+  // Uses the same queue as manual setup/selection, but never changes preferences.
+  ensureReady: async (signal: AbortSignal) => {
+    const operation = new AbortController();
+    const abort = () => operation.abort(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+    // Include time waiting behind manual setup, not only time at the queue head.
+    const timer = setTimeout(
+      () =>
+        operation.abort(
+          new Error(
+            "Termux recovery timed out. Check or repair connection in Settings.",
+          ),
+        ),
+      30_000,
+    );
+    try {
+      await exclusive(async () => {
+        if (
+          Platform.OS !== "android" ||
+          (await SecureStore.getItemAsync(ENABLED)) !== "yes"
+        )
+          return;
+        await checkOrRepair(operation.signal, () => {}, 30_000);
+      }, operation.signal);
+    } finally {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", abort);
+    }
+  },
   selfTest: (signal: AbortSignal, onPhase: (phase: SelfTestPhase) => void) =>
     exclusive(async () => {
       native();

@@ -41,7 +41,7 @@ These tests use the current model and may incur model charges. A model's claim o
 
 ## 4. Everyday operations
 
-- **Reconnect:** After a phone restart or Termux service exit, open Moose → Settings → “Check or repair connection.”
+- **Reconnect:** With Termux selected, Moose checks and attempts repair on foreground return and before new responses or recurring iterations. Automatic checks have a 30-second budget, including queue wait. If repair fails, open Moose → Settings → “Check or repair connection.” Missing permission, incompatible service versions, and unknown command outcomes still require attention. Failed tools are never automatically replayed.
 - **Return to local files:** Tap “Use local files” and wait for confirmation. No restart is needed; Termux files are not copied automatically.
 - **Switch blocked:** Wait for all conversations to finish, resolve pending submissions, and stop active recurring tasks on the Tasks page, then retry. Switching does not automatically terminate them.
 - **Cancel setup waiting:** Tap “Cancel setup.” Temporary transfers and waits stop, but installed dependencies remain and installation processes whose downloads finished may continue. You can check or repair the connection later.
@@ -72,7 +72,7 @@ Record the new APK version, phone Android version, Termux version, and whether i
 
 ## v0.2.1 diagnostics
 
-The execution environment shows the current selection and the latest communication result and time from this app launch. This is not continuous health monitoring. Tap “Run self-check (no model calls)” to verify the signed connection, temporary file read/write, and bash. Temporary files use a reserved diagnostic workspace separate from chat workspaces, with cleanup attempted afterward. Cleanup may fail if the connection drops; rerun the check after reconnecting. Chat tools are not automatically replayed.
+The execution environment shows the current selection and the latest communication result and time from this app launch. This is not continuous health monitoring; checks run on foreground return and before new runs. Tap “Run self-check (no model calls)” to verify the signed connection, temporary file read/write, and bash. Temporary files use a reserved diagnostic workspace separate from chat workspaces, with cleanup attempted afterward. Cleanup may fail if the connection drops; rerun the check after reconnecting. Chat tools are not automatically replayed.
 
 “View diagnostic records” retains only the latest 40 metadata entries from this launch, selectable by long-press for copying. Records contain no paths, commands, bodies, signatures, or credentials. A missing file does not imply disconnection; request timeout, task cancellation, and transport interruption of unknown origin are reported separately. Diagnostics do not infer background restrictions or user stops from generic fetch errors.
 
