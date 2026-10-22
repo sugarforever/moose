@@ -1,6 +1,7 @@
 name: Verify
 on:
   pull_request:
+  workflow_dispatch:
   push:
     branches: [main]
 permissions:
@@ -23,3 +24,4 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run verify
+      - run: npx expo-doctor
