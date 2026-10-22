@@ -10,3 +10,9 @@ export { CodexAuth, CodexAuthError } from "../auth/codex";
 
 export { PermissionStore } from "../capabilities/permissions";
 export { CapabilityService } from "../capabilities/service";
+
+export {
+  executionStatus,
+  statusLabel,
+  executionDetails,
+} from "./execution-diagnostics";

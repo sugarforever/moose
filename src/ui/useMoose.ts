@@ -19,7 +19,13 @@ import {
 import { acquireBackground } from "../platform/background";
 import type { SetupPhase } from "../termux/setup";
 import { credentials, defaultSettings } from "../platform/open";
-import { loadSkill, chatMessages } from "../generated/runtime";
+import {
+  loadSkill,
+  chatMessages,
+  executionStatus,
+  executionDetails,
+  statusLabel,
+} from "../generated/runtime";
 import type {
   MobileEngine,
   ModelSettings,
@@ -32,6 +38,7 @@ import {
   type Activity,
   type ActivityMessage,
 } from "./chat-activity";
+import type { ExecutionStatus } from "../runtime/execution-diagnostics";
 import type { LiveState } from "@earendil-works/pi-durable";
 import { codexAuth } from "../platform/codex";
 import { loginCodexBrowser } from "../platform/codex-browser";
@@ -73,6 +80,11 @@ export function useMoose() {
   const [messages, setMessages] = useState<ActivityMessage[]>([]);
   const [activity, setActivity] = useState<Activity[]>([]);
   const [partial, setPartial] = useState("");
+  const [executionDetail, setExecutionDetail] = useState("");
+  const [execution, setExecution] = useState<ExecutionStatus>({
+    state: "idle",
+    retries: 0,
+  });
   const [busy, setBusy] = useState(false);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
@@ -159,10 +171,12 @@ export function useMoose() {
     setPartial("");
     setActivity([]);
     setBusy(false);
+    setExecution({ state: "idle", retries: 0 });
+    setExecutionDetail("");
     void run(async () => {
       const [activeSkills, outbox] = await Promise.all([
         runtime.engine.read<string[]>(`skills:${conversationId}`, []),
-        runtime.engine.read<Pending | null>(`outbox:${conversationId}`, null),
+        runtime.engine.pendingRequest(conversationId),
       ]);
       if (disposed) return;
       setSelected(activeSkills);
@@ -174,6 +188,8 @@ export function useMoose() {
           (a, b) => a.entryId - b.entryId,
         );
         setMessages(next);
+        setExecution(executionStatus(view));
+        setExecutionDetail(executionDetails(view));
         const live = view.docs["pi.live"] as unknown as LiveState | undefined;
         setBusy(!!live?.run);
         setActivity(chatActivity(live));
@@ -220,12 +236,7 @@ export function useMoose() {
         void (async () => {
           await refresh(runtime.engine);
           if (conversationId)
-            setPending(
-              await runtime.engine.read<Pending | null>(
-                `outbox:${conversationId}`,
-                null,
-              ),
-            );
+            setPending(await runtime.engine.pendingRequest(conversationId));
         })().catch(() => {});
     }, 3000);
     return () => {
@@ -278,9 +289,9 @@ export function useMoose() {
                 "Your ChatGPT session has expired. Sign in again in Settings.",
               );
           }
-          throw new Error(
-            "The response is incomplete. You can rerun this task.",
-          );
+          // The committed task status and attempt details explain the outcome.
+          // Do not add a second generic error that outlives a recovered attempt.
+          return;
         }
         if (messages.length === 0)
           await runtime.engine.write(
@@ -403,6 +414,21 @@ export function useMoose() {
     partial,
     activity,
     busy,
+    executionNeedsReview: execution.unknownEffects,
+    executionDetail,
+    acknowledgeUnknownEffects: () =>
+      run(async () => {
+        if (!runtime || !conversationId) return;
+        await runtime.engine.acknowledgeUnknownEffects(conversationId);
+        setExecution(
+          executionStatus(await runtime.engine.view(conversationId)),
+        );
+      }),
+    executionLabel: statusLabel(
+      approval?.conversationId === conversationId
+        ? { ...execution, state: "waiting_authorization" }
+        : execution,
+    ),
     working,
     error,
     setError,

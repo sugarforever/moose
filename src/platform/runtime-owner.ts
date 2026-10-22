@@ -10,7 +10,7 @@ import { replaceRuntime } from "../termux/switch";
 import type { SetupPhase } from "../termux/setup";
 type Runtime = Awaited<ReturnType<typeof openMobile>>;
 function bind(runtime: Runtime) {
-  configureBackground(() => runtime.engine.stopAll());
+  configureBackground((cause) => runtime.engine.stopAll(cause));
   return runtime;
 }
 const owner = new RuntimeOwner(async () => bind(await openMobile()));
@@ -20,7 +20,9 @@ export function recoverMobileRuntime(runtime: Runtime) {
   let pending = recovery.get(runtime);
   if (!pending) {
     pending = (async () => {
-      await cancelInterruptedBackground(() => runtime.engine.stopAll());
+      await cancelInterruptedBackground((cause) =>
+        runtime.engine.stopAll(cause),
+      );
       if (await credentials.has(runtime.settings.provider))
         await runtime.engine.resume();
     })();

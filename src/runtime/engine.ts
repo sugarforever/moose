@@ -1,3 +1,13 @@
+import {
+  ExecutionDoc,
+  executionDiagnostics,
+  executionEvents,
+  executionPhase,
+  recordExecution,
+  safeError,
+  type AttemptFailure,
+  type Cancellation,
+} from "./execution-diagnostics";
 import { skillWorkspaceTool } from "./skill-workspace";
 import type { ExecutionGuard } from "./execution-owner";
 import { executionRequestKey } from "./execution-request";
@@ -53,6 +63,7 @@ export interface ChatMessage {
   role: "user" | "assistant";
   text: string;
   error?: boolean;
+  failure?: AttemptFailure;
 }
 export interface SavedCheckpoint {
   id: string;
@@ -146,8 +157,11 @@ const createRepeatTask = (guard?: ExecutionGuard) =>
   });
 
 export function chatMessages(
-  view: Pick<ConversationView, "entries">,
+  view: Pick<ConversationView, "entries"> &
+    Partial<Pick<ConversationView, "docs">>,
 ): ChatMessage[] {
+  const events = executionEvents(view);
+  const all = view.entries.flatMap((e) => e.model ?? []);
   return view.entries.flatMap((entry) =>
     (entry.model ?? []).flatMap((message) => {
       if (message.role !== "assistant" && message.role !== "user") return [];
@@ -166,8 +180,64 @@ export function chatMessages(
         )
       )
         return [];
+      const failed =
+        message.role === "assistant" &&
+        ["error", "aborted"].includes(message.stopReason);
+      const event = failed
+        ? events.findLast(
+            (e) => e.kind === "response" && e.responseAt === message.timestamp,
+          )
+        : undefined;
+      const later = all.slice(all.indexOf(message) + 1);
+      const boundary = later.findIndex((m) => m.role === "user");
+      const nextUserAt = boundary < 0 ? Infinity : later[boundary].timestamp;
+      const request = events.findLast(
+        (e) => e.kind === "request" && e.at <= message.timestamp,
+      );
+      const cancellation = failed
+        ? events.find(
+            (e) =>
+              ["cancel", "restart"].includes(e.kind) &&
+              e.at >= message.timestamp &&
+              e.at < nextUserAt &&
+              (!request || e.taskId === request.taskId),
+          )
+        : undefined;
+      const recovered = later
+        .slice(0, boundary < 0 ? undefined : boundary)
+        .some(
+          (m) =>
+            m.role === "assistant" &&
+            ["stop", "length", "toolUse"].includes(m.stopReason),
+        );
       return [
         {
+          ...(failed
+            ? {
+                failure: {
+                  reason:
+                    message.stopReason === "aborted"
+                      ? (cancellation?.reason ?? "interrupted_unknown")
+                      : message.stopReason,
+                  message: safeError(
+                    message.errorMessage ||
+                      (message.stopReason === "aborted"
+                        ? "Generation interrupted; exact cause unavailable"
+                        : "Model response failed"),
+                  ),
+                  at: event?.at ?? cancellation?.at ?? message.timestamp,
+                  phase: event?.phase ?? cancellation?.phase ?? "generation",
+                  retries:
+                    event || cancellation
+                      ? Math.max(
+                          0,
+                          (event?.attempt ?? cancellation?.attempt ?? 1) - 1,
+                        )
+                      : null,
+                  recovered,
+                },
+              }
+            : {}),
           entryId: Number(entry.id),
           role: message.role,
           text,
@@ -207,6 +277,8 @@ export class MobileEngine {
       "CREATE TABLE IF NOT EXISTS moose_data (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     );
     const registry = createRegistry();
+    let activeHarness: Awaited<ReturnType<typeof Harness.open>>;
+    registry.install(executionDiagnostics(() => activeHarness, now));
     const RepeatTask = createRepeatTask(executionGuard);
     registry.install(
       defineExtension({ name: "moose.tasks", tasks: [RepeatTask] }),
@@ -287,12 +359,20 @@ export class MobileEngine {
         env: files ? (target) => files.get(target) : undefined,
         settings: {
           progress: { partialIntervalMs: 150 },
+          stream: { maxRetries: 0 },
+          retry: {
+            enabled: true,
+            maxRetries: 3,
+            baseDelayMs: 2000,
+            maxAgentDelayMs: 30000,
+          },
           // Keep automatic compaction inside the generation's execution lease.
           compaction: { backgroundTokens: 0 },
         },
       },
       BACKGROUND_CONTEXT,
     );
+    activeHarness = harness;
     const engine = new MobileEngine(
       harness,
       database,
@@ -474,14 +554,100 @@ export class MobileEngine {
       throw error;
     }
   }
+  async acknowledgeUnknownEffects(id: number) {
+    const view = await this.view(id);
+    const through = Math.max(
+      0,
+      ...view.entries.map((entry) => Number(entry.id)),
+    );
+    await this.harness.commit(async (tx) => {
+      const doc = await tx.doc(ExecutionDoc, id as ConversationId);
+      doc.acknowledgedThrough = Math.max(doc.acknowledgedThrough ?? 0, through);
+      doc.unknown = (doc.unknownThrough ?? 0) > doc.acknowledgedThrough;
+    }, this.context);
+  }
+  async pendingRequest(id: number) {
+    const key = `outbox:${id}`;
+    const pending = await this.read<{
+      conversationId: number;
+      text: string;
+      requestId: string;
+    } | null>(key, null);
+    if (!pending) return null;
+    const record = await this.harness.commit(
+      (tx) => tx.submissionByRequest(id as ConversationId, pending.requestId),
+      this.context,
+    );
+    if (record && record.status !== "queued" && record.status !== "placed") {
+      // Compare-and-clear cannot erase a newer request written during this read.
+      await this.database.run(
+        "UPDATE moose_data SET value='null' WHERE key=? AND value=?",
+        key,
+        JSON.stringify(pending),
+      );
+      return null;
+    }
+    return pending;
+  }
   async messages(id: number): Promise<ChatMessage[]> {
-    const view = await (await this.conversation(id)).context(this.context);
-    return chatMessages(view);
+    return chatMessages(await this.view(id));
+  }
+  async view(id: number) {
+    const chat = await this.conversation(id);
+    const state = await chat.viewState(this.context);
+    try {
+      return await this.withDiagnostics(id, state.value);
+    } finally {
+      await state.dispose();
+    }
+  }
+  private async withDiagnostics(
+    id: number,
+    view: ConversationView,
+  ): Promise<ConversationView> {
+    const diagnostics = await this.harness.snapshot(
+      ExecutionDoc,
+      id as ConversationId,
+      this.context,
+    );
+    let outcome: { reason: string; at: number; phase: string } | undefined;
+    const latest = diagnostics?.events.at(-1);
+    if (!view.docs["pi.live"]?.run && latest) {
+      const task = await this.harness.getTask(
+        Number(latest.taskId) as TaskId,
+        this.context,
+      );
+      if (
+        task?.state.status === "terminal" &&
+        ["faulted", "orphaned"].includes(task.state.outcome.status)
+      ) {
+        const result = task.state.outcome;
+        outcome = {
+          reason: safeError(
+            result.error?.message ??
+              result.reason ??
+              "Runtime task interrupted",
+          ),
+          at: task.endedAt ?? latest.at,
+          phase: latest.phase,
+        };
+      }
+    }
+    return {
+      ...view,
+      docs: {
+        ...view.docs,
+        ...(outcome ? { "moose.outcome": outcome } : {}),
+        ...(diagnostics ? { "moose.execution": diagnostics } : {}),
+      },
+    };
   }
   async watch(id: number, listener: (view: ConversationView) => void) {
     const watch = await (await this.conversation(id)).watch(this.context);
-    listener(watch.value);
-    watch.start(async (value) => listener(value));
+    listener(await this.withDiagnostics(id, watch.value));
+    watch.start(async (value) =>
+      listener(await this.withDiagnostics(id, value)),
+    );
     return () => watch.stop();
   }
   async checkpoint(id: number, label: string): Promise<SavedCheckpoint> {
@@ -637,9 +803,16 @@ export class MobileEngine {
       );
   }
   async stopTask(id: number) {
+    const task = await this.harness.getTask(id as TaskId, this.context);
+    if (task)
+      await this.recordCancellation(Number(task.conversationId), {
+        reason: "user_stop",
+        at: Date.now(),
+      });
     await this.harness.abortTask(id as TaskId, this.context);
   }
   async stopConversation(id: number) {
+    await this.recordCancellation(id, { reason: "user_stop", at: Date.now() });
     // Conversation.abort enables Pi scheduling, so protect other persisted runs first.
     await this.resume();
     await (await this.conversation(id)).abort(this.context);
@@ -673,7 +846,31 @@ export class MobileEngine {
       await lease.release();
       throw new Error("Task stopped");
     }
-    this.harness.resume();
+    try {
+      for (const id of ids) {
+        const live = await this.harness.snapshot(
+          LiveDoc,
+          id as ConversationId,
+          this.context,
+        );
+        if (live?.run)
+          await recordExecution(this.harness, id as ConversationId, {
+            kind: "restart",
+            taskId: String(live.run.taskId),
+            ...(live.run.inputs[0]
+              ? { runId: String(live.run.inputs[0]) }
+              : {}),
+            phase: executionPhase(live),
+            at: Date.now(),
+            attempt: live.generation?.attempt ?? 1,
+            reason: "runtime_restart",
+          });
+      }
+      this.harness.resume();
+    } catch (error) {
+      await lease?.release();
+      throw error;
+    }
     if (lease) {
       void Promise.all([
         ...[...ids].map(async (id) =>
@@ -690,13 +887,36 @@ export class MobileEngine {
         .catch(() => {});
     }
   }
-  async stopAll() {
+  private async recordCancellation(id: number, cause: Cancellation) {
+    const live = await this.harness.snapshot(
+      LiveDoc,
+      id as ConversationId,
+      this.context,
+    );
+    if (!live?.run) return;
+    await recordExecution(
+      this.harness,
+      id as ConversationId,
+      {
+        kind: "cancel",
+        taskId: String(live.run.taskId),
+        ...(live.run.inputs[0] ? { runId: String(live.run.inputs[0]) } : {}),
+        phase: executionPhase(live),
+        at: cause.at,
+        attempt: live.generation?.attempt ?? 1,
+        reason: cause.reason,
+      },
+      true,
+    );
+  }
+  async stopAll(cause: Cancellation = { reason: "user_stop", at: Date.now() }) {
     // Cross repeat/background ownership boundaries and withdraw queued inputs.
     const pending = await this.harness.inspect(this.context);
     const ids = new Set([
       ...pending.tasks.map((item) => Number(item.record.conversationId)),
       ...pending.submissions.map((item) => Number(item.conversationId)),
     ]);
+    await Promise.all([...ids].map((id) => this.recordCancellation(id, cause)));
     const conversations = await Promise.all(
       [...ids].map((id) => this.conversation(id)),
     );

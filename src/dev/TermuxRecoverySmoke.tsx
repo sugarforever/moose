@@ -8,7 +8,11 @@ import {
   createMobileModels,
 } from "../generated/runtime";
 import { termux } from "../platform/termux";
-import { acquireBackground, configureBackground } from "../platform/background";
+import {
+  acquireBackground,
+  configureBackground,
+  cancelInterruptedBackground,
+} from "../platform/background";
 import { readyExecution, observeTermuxRecovery } from "../termux/recovery";
 import { responseEvents, sseResponse } from "./controlled-sse";
 let engine: Promise<MobileEngine> | undefined;
@@ -59,7 +63,8 @@ function getEngine() {
       { shell: true },
       readyExecution(acquireBackground, termux.ensureReady),
     );
-    configureBackground(() => runtime.stopAll());
+    configureBackground((cause) => runtime.stopAll(cause));
+    await cancelInterruptedBackground((cause) => runtime.stopAll(cause));
     return runtime;
   })());
 }
