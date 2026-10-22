@@ -15,6 +15,7 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import {
   SafeAreaProvider,
@@ -63,6 +64,7 @@ function MooseApp() {
   const moose = useMoose();
   const updates = useAndroidUpdates();
   const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
   const [tab, setTab] = useState<Tab>("chat");
   const [text, setText] = useState("");
   const [history, setHistory] = useState(false);
@@ -271,6 +273,8 @@ function MooseApp() {
             style={{ flex: 1 }}
           >
             <FlatList
+              style={{ flex: 1, minHeight: 0 }}
+              removeClippedSubviews={false}
               ref={list}
               data={moose.messages}
               keyExtractor={(item, index) =>
@@ -321,40 +325,38 @@ function MooseApp() {
                     <ActivityRow activity={item.activity} />
                   </View>
                 ) : (
-                  <Pressable
-                    onLongPress={
-                      item.role === "user" ? () => messageMenu(item) : undefined
-                    }
-                    delayLongPress={400}
-                    accessible={item.role === "user"}
-                    accessibilityLabel={`${item.role === "user" ? "You" : "Moose"}: ${item.text}`}
-                    accessibilityActions={
-                      item.role === "user" &&
-                      !moose.busy &&
-                      !moose.working &&
-                      !moose.pending &&
-                      moose.hasCredentials
-                        ? [{ name: "messageMenu", label: "Message options" }]
-                        : undefined
-                    }
-                    onAccessibilityAction={({ nativeEvent }) => {
-                      if (nativeEvent.actionName === "messageMenu")
-                        messageMenu(item);
-                    }}
+                  <View
                     style={[
                       a.message,
                       item.role === "user" ? a.userMessage : a.assistantMessage,
                     ]}
                   >
                     {item.role === "user" ? (
-                      <Text style={a.messageText}>{item.text}</Text>
+                      <View style={a.userContent}>
+                        <Text
+                          selectable
+                          style={[a.messageText, { flexShrink: 1 }]}
+                        >
+                          {item.text}
+                        </Text>
+                        {!moose.busy &&
+                          !moose.working &&
+                          !moose.pending &&
+                          moose.hasCredentials && (
+                            <IconButton
+                              name="more-horizontal"
+                              label="Message options"
+                              onPress={() => messageMenu(item)}
+                            />
+                          )}
+                      </View>
                     ) : (
                       <Markdown
                         text={item.text || (item.error ? "" : "…")}
                         error={!!item.error}
                       />
                     )}
-                  </Pressable>
+                  </View>
                 )
               }
               ListFooterComponent={
@@ -396,41 +398,36 @@ function MooseApp() {
                   placeholder="Message"
                   placeholderTextColor="#929C95"
                   multiline
-                  style={a.input}
+                  style={[a.input, { maxHeight: width > height ? 72 : 120 }]}
+                  scrollEnabled
+                  disableFullscreenUI
                   editable={!moose.working}
                 />
-                <View style={a.composerActions}>
-                  {moose.hasCredentials && (
-                    <Text numberOfLines={1} style={a.composerModel}>
-                      {moose.settings.modelId}
-                    </Text>
-                  )}
-                  {moose.busy ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel="Stop response"
-                      onPress={() => void moose.stop()}
-                      style={a.send}
-                    >
-                      <Icon name="square" size={17} color="#fff" />
-                    </Pressable>
-                  ) : (
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel="Send message"
-                      disabled={!canSubmit}
-                      onPress={submit}
-                      style={[
-                        a.send,
-                        !canSubmit && {
-                          opacity: 0.35,
-                        },
-                      ]}
-                    >
-                      <Icon name="arrow-up" size={21} color="#fff" />
-                    </Pressable>
-                  )}
-                </View>
+                {moose.busy ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Stop response"
+                    onPress={() => void moose.stop()}
+                    style={a.send}
+                  >
+                    <Icon name="square" size={17} color="#fff" />
+                  </Pressable>
+                ) : (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Send message"
+                    disabled={!canSubmit}
+                    onPress={submit}
+                    style={[
+                      a.send,
+                      !canSubmit && {
+                        opacity: 0.35,
+                      },
+                    ]}
+                  >
+                    <Icon name="arrow-up" size={21} color="#fff" />
+                  </Pressable>
+                )}
               </View>
             </View>
           </KeyboardAvoidingView>
@@ -567,35 +564,25 @@ const a = StyleSheet.create({
     backgroundColor: colors.soft,
   },
   assistantMessage: { alignSelf: "stretch", paddingVertical: 2 },
+  userContent: { flexDirection: "row", alignItems: "center", gap: 4 },
   messageText: { fontSize: 16, lineHeight: 23, color: colors.ink },
   composerArea: {
-    flexShrink: 1,
+    flexShrink: 0,
     paddingHorizontal: 12,
     paddingTop: 6,
     paddingBottom: 6,
   },
   composer: {
-    flexShrink: 1,
+    flexDirection: "row",
+    alignItems: "flex-end",
     backgroundColor: "#fff",
-    borderRadius: 28,
-    padding: 10,
+    borderRadius: 26,
+    padding: 6,
     gap: 4,
   },
-  composerActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    gap: 12,
-  },
-  composerModel: {
-    flexShrink: 1,
-    fontSize: 13,
-    color: colors.muted,
-  },
   input: {
-    flexShrink: 1,
+    flex: 1,
     minHeight: 44,
-    maxHeight: 140,
     paddingTop: 8,
     paddingBottom: 8,
     paddingHorizontal: 10,
@@ -612,6 +599,7 @@ const a = StyleSheet.create({
     justifyContent: "center",
   },
   tabs: {
+    flexShrink: 0,
     flexDirection: "row",
     borderTopWidth: 1,
     borderColor: colors.line,
