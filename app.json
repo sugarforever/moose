@@ -4,7 +4,7 @@
     "slug": "moose-mobile",
     "version": "0.4.2",
     "scheme": "moose",
-    "orientation": "portrait",
+    "orientation": "default",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
