@@ -8,15 +8,17 @@ export function ActivityRow({ activity }: { activity: Activity }) {
   const color = activity.error ? colors.danger : colors.muted;
   const label = (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-      {activity.active ? (
-        <ActivityIndicator size="small" color={color} />
-      ) : (
-        <Icon
-          name={activity.error ? "alert-circle" : "check"}
-          size={14}
-          color={color}
-        />
-      )}
+      <View style={{ width: 20, flexShrink: 0, alignItems: "center" }}>
+        {activity.active ? (
+          <ActivityIndicator size="small" color={color} />
+        ) : (
+          <Icon
+            name={activity.error ? "alert-circle" : "check"}
+            size={14}
+            color={color}
+          />
+        )}
+      </View>
       <Text style={{ color, fontSize: 13, flexShrink: 1 }}>
         {activity.label}
       </Text>
