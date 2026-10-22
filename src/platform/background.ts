@@ -1,3 +1,4 @@
+import type { Cancellation } from "../runtime/execution-diagnostics";
 import {
   AppRegistry,
   AppState,
@@ -16,11 +17,12 @@ interface NativeBackground {
   stop(token: string): Promise<void>;
   waiting(value: boolean): void;
   pendingStop(): boolean;
+  stopDetail?(): Cancellation | null;
   acknowledgeStop(): void;
   addListener(event: "stop", listener: () => void): EventSubscription;
 }
 let owner: ExecutionOwner | undefined;
-let cancelCurrent: () => Promise<void>;
+let cancelCurrent: (cause?: Cancellation) => Promise<void>;
 let changing = false;
 export function fenceRuntimeChange(value: boolean) {
   if (value && changing)
@@ -34,7 +36,9 @@ function module() {
   return (native ??=
     requireOptionalNativeModule<NativeBackground>("MooseBackground"));
 }
-export function configureBackground(cancel: () => Promise<void>) {
+export function configureBackground(
+  cancel: (cause?: Cancellation) => Promise<void>,
+) {
   cancelCurrent = cancel;
   if (Platform.OS !== "android" || owner) return;
   const bridge = module();
@@ -62,7 +66,13 @@ export function configureBackground(cancel: () => Promise<void>) {
         await bridge?.stop(token);
       },
     },
-    () => cancelCurrent(),
+    () =>
+      cancelCurrent(
+        bridge?.stopDetail?.() ?? {
+          reason: "native_stop_unknown",
+          at: Date.now(),
+        },
+      ),
   );
   bridge?.addListener("stop", () => {
     void owner!
@@ -74,9 +84,16 @@ export function configureBackground(cancel: () => Promise<void>) {
 export function setApprovalWaiting(value: boolean) {
   if (Platform.OS === "android") module()?.waiting(value);
 }
-export async function cancelInterruptedBackground(cancel: () => Promise<void>) {
+export async function cancelInterruptedBackground(
+  cancel: (cause?: Cancellation) => Promise<void>,
+) {
   if (Platform.OS === "android" && module()?.pendingStop()) {
-    await cancel();
+    await cancel(
+      module()?.stopDetail?.() ?? {
+        reason: "native_stop_unknown",
+        at: Date.now(),
+      },
+    );
     module()!.acknowledgeStop();
   }
 }

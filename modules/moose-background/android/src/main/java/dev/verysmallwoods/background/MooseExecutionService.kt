@@ -25,8 +25,8 @@ class MooseExecutionService : Service() {
   private var lock: PowerManager.WakeLock? = null
   private var stopping = false
   private var notification: NotificationCompat.Builder? = null
-  private val budget = Runnable { cancel() }
-  private val handshake = Runnable { cancel() }
+  private val budget = Runnable { cancel("budget_expired") }
+  private val handshake = Runnable { cancel("handshake_timeout") }
   private val unresponsive = Runnable {
     // Persisted cancellation is handled before recovery on next explicit launch.
     shutdown()
@@ -36,7 +36,7 @@ class MooseExecutionService : Service() {
   override fun onCreate() { super.onCreate(); instance = this }
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     if (intent?.action == ACTION_STOP) {
-      if (token != null && intent.getStringExtra("token") == token) cancel()
+      if (token != null && intent.getStringExtra("token") == token) cancel("notification_stop")
       else if (token == null && admission == null) shutdown()
       return START_NOT_STICKY
     }
@@ -91,7 +91,7 @@ class MooseExecutionService : Service() {
     handler.post {
       val builder = notification ?: return@post
       if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-        cancel()
+        cancel("notification_permission_lost")
         return@post
       }
       if (!stopping) getSystemService(NotificationManager::class.java).notify(7301,
@@ -110,11 +110,11 @@ class MooseExecutionService : Service() {
   fun release(value: String) {
     if (token == value && !stopping) shutdown()
   }
-  fun runtimeDestroyed() { handler.post { cancel() } }
-  private fun cancel() {
+  fun runtimeDestroyed() { handler.post { cancel("runtime_destroyed") } }
+  private fun cancel(reason: String) {
     if (stopping) return
     stopping = true
-    getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean("stop", true).commit()
+    persistStop(this, reason)
     admission?.promise?.reject("BACKGROUND_STOP", "Background execution stopped", null)
     admission = null
     emitStop?.invoke()
@@ -137,7 +137,7 @@ class MooseExecutionService : Service() {
   override fun onDestroy() {
     // Unexpected service removal must cancel JS; a normal release already cleared instance.
     if (instance === this) {
-      getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean("stop", true).commit()
+      persistStop(this, "service_destroyed")
       emitStop?.invoke()
     }
     shutdown()
@@ -167,7 +167,19 @@ class MooseExecutionService : Service() {
       }
       instance?.release(token)
     }
+    private fun persistStop(context: Context, reason: String) {
+      val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+      // Preserve the first cause if onDestroy follows budget/user/runtime cancellation.
+      if (!prefs.getBoolean("stop", false)) prefs.edit()
+        .putBoolean("stop", true).putString("reason", reason)
+        .putLong("at", System.currentTimeMillis()).commit()
+    }
+    fun stopDetail(context: Context): Map<String, Any>? {
+      val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+      if (!prefs.getBoolean("stop", false)) return null
+      return mapOf("reason" to (prefs.getString("reason", null) ?: "native_stop_unknown"), "at" to prefs.getLong("at", System.currentTimeMillis()).toDouble())
+    }
     fun pendingStop(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("stop", false)
-    fun clearStop(context: Context) { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove("stop").commit() }
+    fun clearStop(context: Context) { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove("stop").remove("reason").remove("at").commit() }
   }
 }

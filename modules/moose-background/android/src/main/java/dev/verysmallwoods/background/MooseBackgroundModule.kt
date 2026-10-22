@@ -30,6 +30,7 @@ class MooseBackgroundModule : Module() {
       .runOnQueue(expo.modules.kotlin.functions.Queues.MAIN)
     Function("waiting") { value: Boolean -> MooseExecutionService.instance?.waiting(value) }
     Function("pendingStop") { MooseExecutionService.pendingStop(requireNotNull(appContext.reactContext)) }
+    Function("stopDetail") { MooseExecutionService.stopDetail(requireNotNull(appContext.reactContext)) }
     Function("acknowledgeStop") {
       val context = requireNotNull(appContext.reactContext)
       MooseExecutionService.clearStop(context)

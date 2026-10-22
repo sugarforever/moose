@@ -25,7 +25,7 @@ it("distinguishes the RPC deadline from caller cancellation and does not send al
     const rpc = signedTransport(
       url,
       seed,
-      fetcher,
+      fetcher as typeof fetch,
       () => "id",
       diagnostics.record,
     );

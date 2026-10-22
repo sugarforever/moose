@@ -353,15 +353,30 @@ function MooseApp() {
                     ) : (
                       <Markdown
                         text={item.text || (item.error ? "" : "…")}
-                        error={!!item.error}
+                        failure={item.failure}
                       />
                     )}
                   </View>
                 )
               }
               ListFooterComponent={
-                moose.busy || moose.activity.length ? (
+                moose.busy || moose.activity.length || moose.executionLabel ? (
                   <View style={[a.message, a.assistantMessage]}>
+                    {!!moose.executionLabel && (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Task status and details"
+                        onPress={() =>
+                          Alert.alert(
+                            "Task details",
+                            moose.executionDetail || moose.executionLabel,
+                          )
+                        }
+                        style={{ minHeight: 44, justifyContent: "center" }}
+                      >
+                        <Caption>{moose.executionLabel} · Details</Caption>
+                      </Pressable>
+                    )}
                     {moose.activity.map((activity) => (
                       <ActivityRow
                         key={`${moose.conversationId}:${activity.id}`}
@@ -375,7 +390,26 @@ function MooseApp() {
                 ) : undefined
               }
             />
-            {moose.pending && !moose.working && (
+            {moose.executionNeedsReview && (
+              <Button
+                label="Review interrupted operation"
+                disabled={moose.busy || moose.working}
+                onPress={() =>
+                  Alert.alert(
+                    "Operation outcome unknown",
+                    "A command or write may already have run. Inspect its effects before allowing further changes. This does not rerun the operation.",
+                    [
+                      { text: "Cancel", style: "cancel" },
+                      {
+                        text: "Allow further changes",
+                        onPress: () => void moose.acknowledgeUnknownEffects(),
+                      },
+                    ],
+                  )
+                }
+              />
+            )}
+            {moose.pending && !moose.working && !moose.busy && (
               <View style={a.retry}>
                 <Caption>A request needs confirmation</Caption>
                 <Pressable

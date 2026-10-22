@@ -1,6 +1,8 @@
-import { memo, useMemo } from "react";
+import type { AttemptFailure } from "../runtime/execution-diagnostics";
+import { memo, useMemo, useState } from "react";
 import {
   Linking,
+  Pressable,
   Platform,
   ScrollView,
   StyleSheet,
@@ -191,24 +193,52 @@ function blocks(nodes: MarkdownNode[]): React.ReactNode[] {
 }
 export const Markdown = memo(function Markdown({
   text,
-  error = false,
+  failure,
 }: {
   text: string;
-  error?: boolean;
+  failure?: AttemptFailure;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const tree = useMemo(() => parseMarkdown(text), [text]);
   return (
     <View style={styles.root}>
-      {error && (
-        <Text accessibilityRole="alert" style={styles.error}>
-          Response interrupted
-        </Text>
+      {failure && (
+        <View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Attempt details"
+            accessibilityState={{ expanded }}
+            onPress={() => setExpanded(!expanded)}
+            style={{ minHeight: 44, justifyContent: "center" }}
+          >
+            <Text style={failure.recovered ? styles.recovered : styles.error}>
+              {failure.recovered
+                ? "Earlier attempt failed · Recovered"
+                : failure.reason === "error"
+                  ? "Reply failed"
+                  : `Reply stopped · ${failure.reason.replaceAll("_", " ")}`}{" "}
+              · {expanded ? "Hide details" : "Details"}
+            </Text>
+          </Pressable>
+          {expanded && (
+            <Text selectable style={styles.detail}>
+              {failure.message}
+              {"\n"}
+              {new Date(failure.at).toLocaleString()} · {failure.phase} ·{" "}
+              {failure.retries === null
+                ? "Retry count unavailable"
+                : `${failure.retries} ${failure.retries === 1 ? "retry" : "retries"}`}
+            </Text>
+          )}
+        </View>
       )}
       {blocks(tree)}
     </View>
   );
 });
 const styles = StyleSheet.create({
+  recovered: { color: colors.ink, fontSize: 14 },
+  detail: { color: colors.ink, fontSize: 13, lineHeight: 20 },
   root: { alignSelf: "stretch", minWidth: 0 },
   text: { color: colors.ink, fontSize: 16, lineHeight: 25 },
   paragraph: { marginVertical: 4 },
