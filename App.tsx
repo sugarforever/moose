@@ -1,3 +1,4 @@
+import { Markdown } from "./src/ui/Markdown";
 import React, { useEffect, useRef, useState } from "react";
 import {
   ActionSheetIOS,
@@ -345,15 +346,14 @@ function MooseApp() {
                       item.role === "user" ? a.userMessage : a.assistantMessage,
                     ]}
                   >
-                    <Text
-                      selectable={item.role !== "user"}
-                      style={[
-                        a.messageText,
-                        item.error && { color: colors.danger },
-                      ]}
-                    >
-                      {item.text || (item.error ? "Response interrupted" : "…")}
-                    </Text>
+                    {item.role === "user" ? (
+                      <Text style={a.messageText}>{item.text}</Text>
+                    ) : (
+                      <Markdown
+                        text={item.text || (item.error ? "" : "…")}
+                        error={!!item.error}
+                      />
+                    )}
                   </Pressable>
                 )
               }
@@ -367,9 +367,7 @@ function MooseApp() {
                       />
                     ))}
                     {!!moose.partial && moose.busy && (
-                      <Text selectable style={a.messageText}>
-                        {moose.partial}
-                      </Text>
+                      <Markdown text={moose.partial} />
                     )}
                   </View>
                 ) : undefined
