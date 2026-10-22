@@ -1,4 +1,5 @@
 import { SkillContent } from "./SkillContent";
+import { skillSourceUrl } from "../skills/skills";
 import React, { useEffect, useState } from "react";
 import {
   Image,
@@ -150,9 +151,33 @@ export function TasksScreen({ moose }: { moose: Moose }) {
   );
 }
 
+const skillPresets = [
+  {
+    name: "DuckDuckGo Search",
+    description: "Keyless web search. Requires Python and ddgs in Termux.",
+    url: "https://github.com/NousResearch/hermes-agent/blob/main/optional-skills/research/duckduckgo-search/SKILL.md",
+  },
+  {
+    name: "Grill Me",
+    description:
+      "Sharpen a plan through an interview. Requires the upstream grilling skill.",
+    url: "https://github.com/mattpocock/skills/tree/main/skills/productivity/grill-me",
+  },
+  {
+    name: "FPL Copilot",
+    description:
+      "Fantasy Premier League analysis, transfers, and squad planning.",
+    url: "https://github.com/sugarforever/01coder-agent-skills/tree/main/skills/fpl-copilot",
+  },
+];
+
 export function SkillsScreen({ moose }: { moose: Moose }) {
   const [url, setUrl] = useState("");
-  const [installing, setInstalling] = useState(false);
+  const [installing, setInstalling] = useState<string>();
+  const install = (source: string) => {
+    setInstalling(source);
+    void moose.install(source).finally(() => setInstalling(undefined));
+  };
   const [preview, setPreview] = useState<string>();
   return (
     <ScrollView
@@ -178,14 +203,31 @@ export function SkillsScreen({ moose }: { moose: Moose }) {
         <Button
           label="Install"
           icon="download"
-          busy={installing}
-          disabled={!url.trim() || !moose.runtime}
-          onPress={() => {
-            setInstalling(true);
-            void moose.install(url).finally(() => setInstalling(false));
-          }}
+          busy={installing === url}
+          disabled={!!installing || !url.trim() || !moose.runtime}
+          onPress={() => install(url)}
         />
       </Card>
+      <Text style={s.subheading}>Presets</Text>
+      {skillPresets.map((preset) => {
+        const installed = moose.skills.some(
+          (skill) => skill.id === skillSourceUrl(preset.url),
+        );
+        return (
+          <Card key={preset.url}>
+            <Text style={s.subheading}>{preset.name}</Text>
+            <Caption>{preset.description}</Caption>
+            <Button
+              label={installed ? "Installed" : "Install"}
+              icon="download"
+              secondary
+              busy={installing === preset.url}
+              disabled={installed || !!installing || !moose.runtime}
+              onPress={() => install(preset.url)}
+            />
+          </Card>
+        );
+      })}
       <View style={s.between}>
         <Text style={s.subheading}>Installed</Text>
         <Caption>{moose.selected.length} enabled</Caption>
