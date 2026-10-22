@@ -3,8 +3,14 @@ import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { colors, Icon } from "./kit";
 import type { Activity } from "./chat-activity";
 
-export function ActivityRow({ activity }: { activity: Activity }) {
-  const [expanded, setExpanded] = useState(false);
+export function ActivityRow({
+  activity,
+  initiallyExpanded = false,
+}: {
+  activity: Activity;
+  initiallyExpanded?: boolean;
+}) {
+  const [expanded, setExpanded] = useState(initiallyExpanded);
   const color = activity.error ? colors.danger : colors.muted;
   const label = (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
