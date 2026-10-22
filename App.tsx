@@ -38,8 +38,11 @@ import {
 } from "./src/ui/kit";
 import { Artifacts, CapabilityApproval } from "./src/ui/Artifacts";
 import type { ChatMessage } from "./src/runtime/engine";
-import type { ActivityMessage } from "./src/ui/chat-activity";
-import { ActivityRow } from "./src/ui/ActivityRow";
+import {
+  groupActivities,
+  type ActivityGroupMessage,
+} from "./src/ui/chat-activity";
+import { ActivityGroup } from "./src/ui/ActivityGroup";
 
 type Tab = "chat" | "tasks" | "skills" | "settings";
 const tabs: { id: Tab; label: string; icon: IconName }[] = [
@@ -71,7 +74,8 @@ function MooseApp() {
   const [artifactsVisible, setArtifactsVisible] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const followBottom = useRef(true);
-  const list = useRef<FlatList<ActivityMessage>>(null);
+  const list = useRef<FlatList<ActivityGroupMessage>>(null);
+  const activityMessages = groupActivities(moose.messages, moose.activity);
   const title =
     moose.conversations.find((item) => item.id === moose.conversationId)
       ?.title ?? "New conversation";
@@ -276,9 +280,9 @@ function MooseApp() {
               style={{ flex: 1, minHeight: 0 }}
               removeClippedSubviews={false}
               ref={list}
-              data={moose.messages}
+              data={activityMessages}
               keyExtractor={(item, index) =>
-                item.activity?.id ?? `${item.entryId}:${index}`
+                `${moose.conversationId}:${item.groupId ?? `${item.entryId}:${index}`}`
               }
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode={
@@ -320,9 +324,9 @@ function MooseApp() {
                 ) : undefined
               }
               renderItem={({ item }) =>
-                item.activity ? (
+                item.activities ? (
                   <View style={[a.message, a.assistantMessage]}>
-                    <ActivityRow activity={item.activity} />
+                    <ActivityGroup activities={item.activities} />
                   </View>
                 ) : (
                   <View
@@ -377,12 +381,6 @@ function MooseApp() {
                         <Caption>{moose.executionLabel} · Details</Caption>
                       </Pressable>
                     )}
-                    {moose.activity.map((activity) => (
-                      <ActivityRow
-                        key={`${moose.conversationId}:${activity.id}`}
-                        activity={activity}
-                      />
-                    ))}
                     {!!moose.partial && moose.busy && (
                       <Markdown text={moose.partial} />
                     )}

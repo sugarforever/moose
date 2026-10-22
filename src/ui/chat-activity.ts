@@ -114,3 +114,57 @@ export function chatActivity(live?: LiveState): Activity[] {
   }
   return rows;
 }
+
+export type ActivityGroupMessage = ActivityMessage & {
+  groupId?: string;
+  activities?: Activity[];
+};
+
+// A turn owns one disclosure even when assistant prose separates its tool calls.
+export function groupActivities(
+  messages: ActivityMessage[],
+  live: Activity[],
+): ActivityGroupMessage[] {
+  const result: ActivityGroupMessage[] = [];
+  let turn = 0;
+  let group: ActivityGroupMessage | undefined;
+  function append(activity: Activity, entryId: number) {
+    if (!group) {
+      group = {
+        entryId,
+        role: "assistant",
+        text: "",
+        groupId: `activity:${turn}`,
+        activities: [],
+      };
+      result.push(group);
+    }
+    group.activities!.push(activity);
+  }
+  for (const message of messages) {
+    if (message.role === "user") {
+      turn = message.entryId;
+      group = undefined;
+    }
+    if (message.activity) append(message.activity, message.entryId);
+    else result.push(message);
+  }
+  for (const activity of live) append(activity, turn);
+  return result;
+}
+
+export function activitySummary(activities: Activity[]) {
+  const active = activities.filter((activity) => activity.active);
+  const current =
+    active
+      .filter((activity) => !activity.label.endsWith(" · Pending"))
+      .at(-1) ?? active.at(-1);
+  const error = activities.some((activity) => activity.error);
+  return {
+    label:
+      current?.label ??
+      `Worked · ${activities.length} ${activities.length === 1 ? "activity" : "activities"}${error ? " · Failed" : ""}`,
+    active: !!current,
+    error: !current && error,
+  };
+}
