@@ -158,10 +158,9 @@ const skillPresets = [
     url: "https://github.com/NousResearch/hermes-agent/blob/main/optional-skills/research/duckduckgo-search/SKILL.md",
   },
   {
-    name: "Grill Me",
-    description:
-      "Sharpen a plan through an interview. Requires the upstream grilling skill.",
-    url: "https://github.com/mattpocock/skills/tree/main/skills/productivity/grill-me",
+    name: "Grilling",
+    description: "Stress-test a plan, decision, or idea through an interview.",
+    url: "https://github.com/mattpocock/skills/tree/main/skills/productivity/grilling",
   },
   {
     name: "FPL Copilot",
