@@ -1,3 +1,4 @@
+import { SkillContent } from "./SkillContent";
 import React, { useEffect, useState } from "react";
 import {
   Image,
@@ -171,7 +172,9 @@ export function SkillsScreen({ moose }: { moose: Moose }) {
           autoCorrect={false}
           keyboardType="url"
         />
-        <Caption>Loads instructions only. Scripts are not run.</Caption>
+        <Caption>
+          GitHub folders include files. Installation does not run scripts.
+        </Caption>
         <Button
           label="Install"
           icon="download"
@@ -215,7 +218,7 @@ export function SkillsScreen({ moose }: { moose: Moose }) {
                 style={{ minHeight: 44, justifyContent: "center" }}
               >
                 <Text style={s.link}>
-                  {preview === skill.id ? "Hide content" : "View instructions"}
+                  {preview === skill.id ? "Hide content" : "View files"}
                 </Text>
               </Pressable>
               <IconButton
@@ -225,12 +228,7 @@ export function SkillsScreen({ moose }: { moose: Moose }) {
               />
             </View>
             {preview === skill.id && (
-              <Text
-                selectable
-                style={{ color: colors.muted, fontSize: 12, lineHeight: 20 }}
-              >
-                {skill.instructions}
-              </Text>
+              <SkillContent key={skill.installedAt} skill={skill} />
             )}
           </Card>
         ))

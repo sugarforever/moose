@@ -664,3 +664,28 @@ it("reopens conversation-local data and never accepts a Skill ID in the reserved
     ),
   ).rejects.toMatchObject({ code: "validation" });
 });
+
+it("reads installed scripts offline and never fetches missing bundle resources", async () => {
+  const f = await fixture(async () => {
+    throw new Error("Must not fetch");
+  });
+  f.options.skills = async () => [
+    {
+      ...skill,
+      files: [
+        { path: "scripts/run.sh", base64: "ZWNobyB3b3JraW5n", size: 12 },
+        { path: "image.bin", base64: "AP8B", size: 3 },
+      ],
+    },
+  ];
+  expect(
+    (await f.invoke("skill_resource_read", { path: "scripts/run.sh" })).text,
+  ).toBe("echo working");
+  expect(f.requests).toEqual([]);
+  await expect(
+    f.invoke("skill_resource_read", { path: "missing.md" }),
+  ).rejects.toMatchObject({ code: "validation" });
+  await expect(
+    f.invoke("skill_resource_read", { path: "image.bin" }),
+  ).rejects.toMatchObject({ code: "validation" });
+});
