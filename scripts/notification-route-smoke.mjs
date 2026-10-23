@@ -34,7 +34,7 @@ async function shows(id) {
   for (let n = 0; n < 5; n++) {
     shell("uiautomator", "dump", "/sdcard/moose-route-smoke.xml");
     const view = adb("exec-out", "cat", "/sdcard/moose-route-smoke.xml");
-    if (view.includes(`probe=${id}`)) return true;
+    if (new RegExp(`probe=${id}(?![0-9])`).test(view)) return true;
     await delay(500);
   }
   return false;
