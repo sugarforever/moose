@@ -507,3 +507,70 @@ it("keeps recovered conversations protected when a new submit starts the schedul
   );
   expect(faux.state.callCount).toBe(3);
 });
+
+it("persists attachment-only messages, retries and restores their checkpoint history", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "moose-attachments-"));
+  cleanup.push(() => rm(dir, { recursive: true, force: true }));
+  const faux = fauxProvider({
+    models: [{ id: "vision", input: ["text", "image"] }],
+  });
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const settings = { provider: "faux", modelId: "vision" };
+  const path = join(dir, "chat.sqlite");
+  let engine = await MobileEngine.open(database(path), models, settings);
+  cleanup.push(() => engine.close());
+  const chat = await engine.newConversation();
+  const image = {
+    id: "photo-1",
+    name: "photo.jpg",
+    mimeType: "image/jpeg",
+    size: 2,
+    data: "aGk=",
+  };
+  faux.setResponses([fauxAssistantMessage("A photo")]);
+  await (
+    await engine.submit(chat.id, "", "photo", [image])
+  ).wait(engine.context);
+  await (
+    await engine.submit(chat.id, "", "photo", [image])
+  ).wait(engine.context);
+  expect(
+    (await engine.messages(chat.id)).filter((m) => m.role === "user"),
+  ).toEqual([expect.objectContaining({ text: "", attachments: [image] })]);
+  const checkpoint = await engine.checkpoint(chat.id, "Photo");
+  await engine.close();
+  engine = await MobileEngine.open(database(path), models, settings);
+  const branch = await engine.restoreCheckpoint(checkpoint.id);
+  expect((await engine.messages(branch.id))[0].attachments).toEqual([image]);
+  expect(
+    JSON.stringify((await branch.context(engine.context)).entries),
+  ).toContain('"type":"image"');
+});
+
+it("rejects images for a text-only model before submitting a durable message", async () => {
+  const faux = fauxProvider({ models: [{ id: "text", input: ["text"] }] });
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const settings = { provider: "faux", modelId: "text" };
+  const engine = await MobileEngine.open(
+    database(":memory:"),
+    models,
+    settings,
+  );
+  cleanup.push(() => engine.close());
+  const chat = await engine.newConversation();
+  await expect(
+    engine.submit(chat.id, "look", "bad-image", [
+      {
+        id: "photo",
+        name: "photo.png",
+        mimeType: "image/png",
+        data: "aGk=",
+        size: 2,
+      },
+    ]),
+  ).rejects.toThrow("does not support images");
+  expect(await engine.messages(chat.id)).toEqual([]);
+  expect(faux.state.callCount).toBe(0);
+});

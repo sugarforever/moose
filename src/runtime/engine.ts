@@ -1,4 +1,12 @@
 import {
+  attachmentContent,
+  attachmentPath,
+  decodeAttachment,
+  validateAttachments,
+  type Attachment,
+} from "./attachments";
+import { getOrThrow } from "@earendil-works/pi-durable/env";
+import {
   ExecutionDoc,
   executionDiagnostics,
   executionEvents,
@@ -63,6 +71,7 @@ export interface ChatMessage {
   entryId: number;
   role: "user" | "assistant";
   text: string;
+  attachments?: Attachment[];
   error?: boolean;
   failure?: AttemptFailure;
 }
@@ -168,8 +177,16 @@ export function chatMessages(
   return view.entries.flatMap((entry) =>
     (entry.model ?? []).flatMap((message) => {
       if (message.role !== "assistant" && message.role !== "user") return [];
-      const text =
-        typeof message.content === "string"
+      const attachmentEntry =
+        message.role === "user" && entry.kind === "moose.attachments"
+          ? (entry.data as unknown as {
+              text: string;
+              attachments: Attachment[];
+            })
+          : undefined;
+      const text = attachmentEntry
+        ? attachmentEntry.text
+        : typeof message.content === "string"
           ? message.content
           : message.content
               .filter((block) => block.type === "text")
@@ -177,6 +194,7 @@ export function chatMessages(
               .join("\n");
       if (
         !text &&
+        !attachmentEntry?.attachments.length &&
         !(
           message.role === "assistant" &&
           ["error", "aborted"].includes(message.stopReason)
@@ -244,6 +262,9 @@ export function chatMessages(
           entryId: Number(entry.id),
           role: message.role,
           text,
+          ...(attachmentEntry
+            ? { attachments: attachmentEntry.attachments }
+            : {}),
           error:
             message.role === "assistant" &&
             ["error", "aborted"].includes(message.stopReason),
@@ -257,10 +278,12 @@ export class MobileEngine {
   readonly context = BACKGROUND_CONTEXT;
   private disposed = false;
   private skillTail: Promise<unknown> = Promise.resolve();
+  private attachmentTail: Promise<unknown> = Promise.resolve();
   private constructor(
     readonly harness: Awaited<ReturnType<typeof Harness.open>>,
     private database: SqliteDatabase,
     private settings: ModelSettings,
+    private models: Models,
     private files?: MobileFileEnvironments,
     readonly capabilities?: CapabilityService,
     private executionGuard?: ExecutionGuard,
@@ -384,6 +407,7 @@ export class MobileEngine {
       harness,
       database,
       settings,
+      models,
       files,
       capabilities,
       executionGuard,
@@ -534,19 +558,97 @@ export class MobileEngine {
       ),
     );
   }
-  async submit(id: number, text: string, requestId: string) {
-    if (!text.trim()) throw new Error("Enter a message");
+  private async importAttachments(
+    id: number,
+    attachments: readonly Attachment[],
+  ) {
+    attachments = attachments.filter((a) => !a.mimeType.startsWith("image/"));
+    if (!attachments.length) return;
+    if (!this.files)
+      throw new Error(
+        "The current environment does not support file attachments",
+      );
+    const env = this.files.get({ conversationId: id as ConversationId });
+    for (const a of attachments) {
+      getOrThrow(
+        await env.createDir(
+          `/workspace/attachments/${a.id}`,
+          { recursive: true },
+          this.context,
+        ),
+      );
+      getOrThrow(
+        await env.writeFile(
+          attachmentPath(a),
+          decodeAttachment(a),
+          this.context,
+        ),
+      );
+    }
+  }
+  submit(
+    id: number,
+    text: string,
+    requestId: string,
+    attachments: readonly Attachment[] = [],
+  ) {
+    const operation = this.attachmentTail.then(() =>
+      this.submitInput(id, text, requestId, attachments),
+    );
+    this.attachmentTail = operation.catch(() => {});
+    return operation;
+  }
+  private async submitInput(
+    id: number,
+    text: string,
+    requestId: string,
+    attachments: readonly Attachment[] = [],
+  ) {
+    validateAttachments(attachments);
+    if (!text.trim() && !attachments.length) throw new Error("Enter a message");
     const lease = await this.executionGuard?.(undefined, [id]);
     try {
       await this.resume();
       const conversation = await this.conversation(id);
       if (lease?.signal.aborted) throw new Error("Task stopped");
+      if (attachments.some((a) => a.mimeType.startsWith("image/"))) {
+        const agent = await conversation.agent(this.context);
+        const ref = agent.model ?? this.settings;
+        if (
+          !this.models
+            .getModel(ref.provider, ref.modelId)
+            ?.input.includes("image")
+        )
+          throw new Error(
+            "This model does not support images. Choose a vision model",
+          );
+      }
+      const existing =
+        attachments.length &&
+        (await conversation.commit(
+          (tx) => tx.submissionByRequest(conversation.id, requestId),
+          this.context,
+        ));
+      if (!existing) await this.importAttachments(id, attachments);
+
+      if (lease?.signal.aborted) throw new Error("Task stopped");
       const submission = await conversation.submit(
         {
           type: "input",
-          content: text.trim(),
+          content: attachmentContent(text, attachments),
           requestId,
           whenBusy: "followUp",
+          ...(attachments.length
+            ? {
+                entry: {
+                  kind: "moose.attachments",
+                  data: {
+                    text: text.trim(),
+                    attachments: attachments.map((a) => ({ ...a })),
+                  },
+                },
+              }
+            : {}),
         },
         this.context,
       );
@@ -579,6 +681,7 @@ export class MobileEngine {
       conversationId: number;
       text: string;
       requestId: string;
+      attachments?: Attachment[];
     } | null>(key, null);
     if (!pending) return null;
     const record = await this.harness.commit(
@@ -707,7 +810,14 @@ export class MobileEngine {
       { ownership: { kind: "ownerless" } },
       this.context,
     );
-    if (this.files) await this.upgradeFilePrompt(Number(branch.id));
+    if (this.files) {
+      await this.upgradeFilePrompt(Number(branch.id));
+      const messages = await this.messages(Number(branch.id));
+      for (const message of messages) {
+        if (message.attachments)
+          await this.importAttachments(Number(branch.id), message.attachments);
+      }
+    }
     await this.write(`title:${branch.id}`, `↳ ${saved.label}`);
     await this.write(
       `skills:${branch.id}`,

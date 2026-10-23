@@ -1,6 +1,6 @@
 {
   "name": "moose-mobile",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "private": true,
   "main": "index.ts",
   "scripts": {
@@ -30,8 +30,11 @@
     "expo-build-properties": "~58.0.11",
     "expo-crypto": "~58.0.7",
     "expo-dev-client": "~58.0.14",
+    "expo-document-picker": "~58.0.4",
     "expo-file-system": "~58.0.10",
     "expo-font": "58.0.9",
+    "expo-image-manipulator": "~58.0.15",
+    "expo-image-picker": "~58.0.10",
     "expo-secure-store": "~58.0.2",
     "expo-sharing": "~58.0.20",
     "expo-sqlite": "~58.0.13",

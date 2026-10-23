@@ -1,3 +1,5 @@
+import { Attachments } from "./src/ui/attachments";
+import type { AttachmentSource } from "./src/attachments/picker";
 import { Markdown } from "./src/ui/Markdown";
 import React, { useEffect, useRef, useState } from "react";
 import {
@@ -112,7 +114,7 @@ function MooseApp() {
     )
       return;
     const resend = () => {
-      void moose.send(item.text);
+      void moose.send(item.text, undefined, item.attachments ?? []);
     };
     if (Platform.OS === "ios") {
       ActionSheetIOS.showActionSheetWithOptions(
@@ -156,8 +158,37 @@ function MooseApp() {
       ]);
     }
   };
+  const attachmentMenu = () => {
+    const sources: AttachmentSource[] = ["files", "photos", "camera"];
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ["Files", "Photos", "Take photo", "Cancel"],
+          cancelButtonIndex: 3,
+        },
+        (index) => {
+          if (index < 3) void moose.addAttachment(sources[index]);
+        },
+      );
+    } else {
+      Alert.alert(
+        "Add attachment",
+        undefined,
+        [
+          { text: "Files", onPress: () => void moose.addAttachment("files") },
+          { text: "Photos", onPress: () => void moose.addAttachment("photos") },
+          {
+            text: "Take photo",
+            onPress: () => void moose.addAttachment("camera"),
+          },
+        ],
+        { cancelable: true },
+      );
+    }
+  };
   const canSubmit =
-    !!text.trim() &&
+    (!!text.trim() || moose.attachments.length > 0) &&
+    !moose.pickingAttachment &&
     !!moose.runtime &&
     !!moose.conversationId &&
     moose.hasCredentials &&
@@ -341,6 +372,7 @@ function MooseApp() {
                       item.role === "user" ? a.userMessage : a.assistantMessage,
                     ]}
                   >
+                    <Attachments items={item.attachments ?? []} />
                     {item.role === "user" ? (
                       <View style={a.userContent}>
                         <Text
@@ -428,7 +460,34 @@ function MooseApp() {
               </View>
             )}
             <View style={a.composerArea}>
+              <Attachments
+                items={moose.attachments}
+                onRemove={
+                  moose.working || moose.pickingAttachment
+                    ? undefined
+                    : moose.removeAttachment
+                }
+              />
               <View style={a.composer}>
+                {moose.pickingAttachment ? (
+                  <ActivityIndicator
+                    style={{ width: 44, height: 44 }}
+                    color={colors.green}
+                  />
+                ) : (
+                  <IconButton
+                    name="plus"
+                    label="Add attachment"
+                    onPress={attachmentMenu}
+                    disabled={
+                      !moose.conversationId ||
+                      moose.busy ||
+                      moose.working ||
+                      !!moose.pending ||
+                      moose.attachments.length >= 4
+                    }
+                  />
+                )}
                 <TextInput
                   accessibilityLabel="Message"
                   value={text}

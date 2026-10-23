@@ -603,3 +603,134 @@ it("executes an installed Skill script with relative references through real Ter
     ),
   ).toBe("Hello from Skill");
 });
+
+it("imports files durably, preserves duplicate filenames and restores attachment bytes into a branch", async () => {
+  const { root, factory, faux, models, settings } = await fixture();
+  const path = join(root, "attachments.sqlite");
+  let engine = await MobileEngine.open(
+    database(path),
+    models,
+    settings,
+    Date.now,
+    factory,
+  );
+  cleanup.push(() => engine.close());
+  const chat = await engine.newConversation();
+  const files = [
+    {
+      id: "first",
+      name: "note.txt",
+      mimeType: "text/plain",
+      data: "aGk=",
+      size: 2,
+    },
+    {
+      id: "second",
+      name: "note.txt",
+      mimeType: "text/plain",
+      data: "Ynll",
+      size: 3,
+    },
+  ];
+  faux.setResponses([
+    call("read", { path: "/workspace/attachments/first/note.txt" }),
+    fauxAssistantMessage("Read hi"),
+  ]);
+  await (await engine.submit(chat.id, "", "files", files)).wait(engine.context);
+  const view = await chat.context(engine.context);
+  expect(
+    JSON.stringify(
+      view.entries
+        .flatMap((e) => e.model ?? [])
+        .filter((m) => m.role === "toolResult"),
+    ),
+  ).toContain("hi");
+  const checkpoint = await engine.checkpoint(chat.id, "Files");
+  await fs.writeFile(
+    join(root, `moose-chat-${chat.id}`, "attachments/first/note.txt"),
+    "edited",
+  );
+  await (await engine.submit(chat.id, "", "files", files)).wait(engine.context);
+  expect(
+    await fs.readFile(
+      join(root, `moose-chat-${chat.id}`, "attachments/first/note.txt"),
+      "utf8",
+    ),
+  ).toBe("edited");
+  await engine.close();
+  engine = await MobileEngine.open(
+    database(path),
+    models,
+    settings,
+    Date.now,
+    factory,
+  );
+  expect((await engine.messages(chat.id))[0]).toMatchObject({
+    text: "",
+    attachments: files,
+  });
+  const branch = await engine.restoreCheckpoint(checkpoint.id);
+  expect(
+    await fs.readFile(
+      join(root, `moose-chat-${branch.id}`, "attachments/first/note.txt"),
+      "utf8",
+    ),
+  ).toBe("hi");
+  expect(
+    await fs.readFile(
+      join(root, `moose-chat-${branch.id}`, "attachments/second/note.txt"),
+      "utf8",
+    ),
+  ).toBe("bye");
+  expect(
+    await fs.readFile(
+      join(root, `moose-chat-${chat.id}`, "attachments/first/note.txt"),
+      "utf8",
+    ),
+  ).toBe("edited");
+});
+
+it("does not import an attachment when its execution lease is already cancelled", async () => {
+  const { root, factory, models, settings } = await fixture();
+  const controller = new AbortController();
+  controller.abort();
+  let activeLeases = 0;
+  const engine = await MobileEngine.open(
+    database(":memory:"),
+    models,
+    settings,
+    Date.now,
+    factory,
+    undefined,
+    {},
+    async () => {
+      activeLeases++;
+      return {
+        signal: controller.signal,
+        release: async () => {
+          activeLeases--;
+        },
+      };
+    },
+  );
+  cleanup.push(() => engine.close());
+  const chat = await engine.newConversation();
+  await expect(
+    engine.submit(chat.id, "", "cancelled-file", [
+      {
+        id: "cancelled",
+        name: "note.txt",
+        mimeType: "text/plain",
+        data: "aGk=",
+        size: 2,
+      },
+    ]),
+  ).rejects.toThrow("Task stopped");
+  await expect(
+    fs.stat(
+      join(root, `moose-chat-${chat.id}`, "attachments/cancelled/note.txt"),
+    ),
+  ).rejects.toThrow();
+  expect(activeLeases).toBe(0);
+  expect(await engine.messages(chat.id)).toEqual([]);
+});

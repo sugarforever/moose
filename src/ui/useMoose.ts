@@ -1,3 +1,7 @@
+import type { Attachment } from "../runtime/attachments";
+import { AttachmentDrafts } from "../attachments/drafts";
+import { pickAttachments } from "../platform/attachments";
+import type { AttachmentSource } from "../attachments/picker";
 import { observeTermuxRecovery } from "../termux/recovery";
 import {
   useCallback,
@@ -66,6 +70,7 @@ export type Pending = {
   conversationId: number;
   text: string;
   requestId: string;
+  attachments?: Attachment[];
 };
 export function useMoose() {
   const approval = useSyncExternalStore(approvals.subscribe, approvals.get);
@@ -140,6 +145,23 @@ export function useMoose() {
   const [hasCredentials, setHasCredentials] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null);
   const inFlight = useRef(false);
+  const drafts = useRef(new AttachmentDrafts()).current;
+  drafts.activate(conversationId);
+  const [, updateDraft] = useState(0);
+  const [pickingAttachment, setPickingAttachment] = useState(false);
+  const redrawDraft = () => updateDraft((n) => n + 1);
+  async function addAttachment(source: AttachmentSource) {
+    if (pickingAttachment || working || busy || pending || !conversationId)
+      return;
+    setPickingAttachment(true);
+    await run(async () => {
+      await drafts.select(() =>
+        pickAttachments(source, 4 - drafts.items.length),
+      );
+      redrawDraft();
+    });
+    setPickingAttachment(false);
+  }
   const [codexStatus, setCodexStatus] = useState<CodexStatus>({
     connected: false,
   });
@@ -288,13 +310,17 @@ export function useMoose() {
       clearInterval(timer);
     };
   }, [runtime, settings.provider, conversationId, refresh, run]);
-  async function send(text: string, retry?: Pending) {
+  async function send(
+    text: string,
+    retry?: Pending,
+    attachments: Attachment[] = drafts.items,
+  ) {
     if (!runtime || !conversationId || inFlight.current) return;
     if (!hasCredentials) {
       setError("Add an API key or sign in to ChatGPT in Settings first.");
       return;
     }
-    if (!text.trim()) return;
+    if (!text.trim() && !(retry?.attachments ?? attachments).length) return;
     if (pending && !retry) {
       setError(
         "Resolve the pending request first by retrying with the same ID.",
@@ -307,6 +333,7 @@ export function useMoose() {
       conversationId,
       text: text.trim(),
       requestId: randomUUID(),
+      attachments: [...attachments],
     };
     await run(async () => {
       const lease = await acquireBackground();
@@ -314,10 +341,13 @@ export function useMoose() {
         await runtime.engine.prepareConversation(item.conversationId, settings);
         await runtime.engine.write(`outbox:${item.conversationId}`, item);
         setPending(item);
+        drafts.clear(item.conversationId, item.attachments ?? []);
+        redrawDraft();
         const submission = await runtime.engine.submit(
           item.conversationId,
           item.text,
           item.requestId,
+          item.attachments,
         );
         const result = await submission.wait(runtime.engine.context);
         await runtime.engine.write(`outbox:${item.conversationId}`, null);
@@ -339,7 +369,10 @@ export function useMoose() {
         if (messages.length === 0)
           await runtime.engine.write(
             `title:${item.conversationId}`,
-            item.text.slice(0, 30),
+            (item.text || item.attachments?.[0]?.name || "Attachment").slice(
+              0,
+              30,
+            ),
           );
         await refresh(runtime.engine);
       } finally {
@@ -541,6 +574,13 @@ export function useMoose() {
         if (settings.provider === "openai-codex") setHasCredentials(false);
       }),
     pending,
+    attachments: drafts.items,
+    pickingAttachment,
+    addAttachment,
+    removeAttachment: (id: string) => {
+      drafts.remove(id);
+      redrawDraft();
+    },
     run,
     selectConversation: setConversationId,
     send,

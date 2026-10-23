@@ -2,7 +2,7 @@
   "expo": {
     "name": "Moose",
     "slug": "moose-mobile",
-    "version": "0.7.1",
+    "version": "0.8.0",
     "scheme": "moose",
     "orientation": "default",
     "userInterfaceStyle": "light",
@@ -33,7 +33,15 @@
       "./plugins/termux-network.cjs",
       "expo-sharing",
       "./plugins/termux-setup.cjs",
-      "./plugins/notification-intent.cjs"
+      "./plugins/notification-intent.cjs",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Select photos to attach to a conversation.",
+          "cameraPermission": "Take a photo to attach to a conversation.",
+          "microphonePermission": false
+        }
+      ]
     ],
     "web": {
       "bundler": "metro"
