@@ -219,6 +219,16 @@ After generating a report, open **Files and reports** from the conversation's ov
 
 See [native tool design](docs/portable-agent-tools.md) for tool boundaries, persistence semantics, and validation notes. Developers can open an isolated native test entry point with `EXPO_PUBLIC_MOOSE_CAPABILITIES_SMOKE=1 npx expo start --dev-client`. It uses a dedicated SQLite database and controlled responses without accessing user data or real models.
 
+## Conversation attachments
+
+Use **+** beside the message field to select **Files**, **Photos**, or **Take photo**. Preview or remove attachments before sending; text is optional. Each message accepts up to 4 attachments, each no larger than 8 MiB. Photos are converted to JPEG with a maximum edge of 2048 pixels. The camera requests permission when used; no microphone permission is requested.
+
+Images are sent as visual input to the selected vision-capable model. Other files are imported into the conversation's `/workspace/attachments/<unique ID>/<filename>` for its read tool. Importing a document does not add a PDF or Office parser. Files with the same name use separate directories.
+
+Attachment bytes are saved with the stable request ID before submission, persist in message history, and are retained when retrying or resending. Checkpoint branches reimport the original historical attachment bytes; they do not copy later file edits or other workspace files. Unsent drafts remain in memory per conversation and are lost on app exit. Picker-owned cache copies are cleaned after capture or rejection. Content goes directly to the selected model provider, without a Moose upload backend.
+
+Rebuild the native development client after adding the picker dependencies. See [attachment design and validation](docs/chat-attachments.md) for implementation details and test limitations.
+
 ## Validation
 
 ```sh

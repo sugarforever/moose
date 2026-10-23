@@ -33,7 +33,15 @@
       "./plugins/termux-network.cjs",
       "expo-sharing",
       "./plugins/termux-setup.cjs",
-      "./plugins/notification-intent.cjs"
+      "./plugins/notification-intent.cjs",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Select photos to attach to a conversation.",
+          "cameraPermission": "Take a photo to attach to a conversation.",
+          "microphonePermission": false
+        }
+      ]
     ],
     "web": {
       "bundler": "metro"
