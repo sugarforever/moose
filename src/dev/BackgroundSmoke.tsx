@@ -203,6 +203,13 @@ export function BackgroundSmokeApp() {
         onPress={() => void start(15000, false, "retry")}
       />
       <Button
+        title="Run two concurrent probes"
+        onPress={() => {
+          void start(15000);
+          void start(25000);
+        }}
+      />
+      <Button
         title="Run 5 and 10 minute lock probes"
         onPress={() => {
           void start(310000);

@@ -31,7 +31,7 @@ class MooseBackgroundModule : Module() {
     Function("waiting") { id: Double, value: Boolean -> MooseExecutionService.instance?.waiting(id.toLong(), value) }
     Function("progress") { items: List<Map<String, Any>> -> MooseExecutionService.instance?.progress(items) }
     AsyncFunction("result") { id: Double, failed: Boolean, detail: String ->
-      MooseExecutionService.result(requireNotNull(appContext.reactContext), id.toLong(), failed, detail)
+      MooseExecutionService.result(requireNotNull(appContext.reactContext as? com.facebook.react.bridge.ReactContext), id.toLong(), failed, detail)
     }.runOnQueue(expo.modules.kotlin.functions.Queues.MAIN)
     Function("pendingStop") { MooseExecutionService.pendingStop(requireNotNull(appContext.reactContext)) }
     Function("stopDetail") { MooseExecutionService.stopDetail(requireNotNull(appContext.reactContext)) }

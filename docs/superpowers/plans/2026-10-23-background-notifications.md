@@ -15,7 +15,7 @@
 
 ## Work
 
-- [ ] Write failing observer tests covering persisted final reads, old failures, retries, overlapping leases, cancellation and bounded errors; implement the observer and guard ID propagation.
-- [ ] Extend native progress/result methods and notification intents, preserving stop causes. Add validated warm/cold conversation selection.
+- [x] Write failing observer tests covering persisted final reads, old failures, retries, overlapping leases, cancellation and bounded errors; implement the observer and guard ID propagation.
+- [x] Extend native progress/result methods and notification intents, preserving stop causes. Add validated warm/cold conversation selection.
 - [ ] Run complete verify, native compile and controlled emulator probes; record evidence and limits.
 - [ ] Review diff, create PR, fix findings/checks, merge; increment actual latest patch version, tag and inspect release APK/manifest/signature/companion.

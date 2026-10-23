@@ -1,8 +1,6 @@
 package dev.verysmallwoods.background
 
 import android.app.*
-import android.Manifest
-import android.content.pm.PackageManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -114,16 +112,20 @@ class MooseExecutionService : Service() {
     val single = progressItems.singleOrNull()
     val id = (single?.get("id") as? Number)?.toLong()
     val state = if (id != null && approvals.contains(id)) "waiting_authorization" else single?.get("state") as? String
+    val waiting = progressItems.count { (it["id"] as? Number)?.toLong() in approvals || it["state"] == "waiting_authorization" }
+    val retrying = progressItems.count { it["state"] == "retrying" || it["state"] == "waiting_network" }
     val text = when {
-      progressItems.size > 1 -> "${progressItems.size} tasks active. Stop cancels all tasks."
+      progressItems.size > 1 -> "${progressItems.size} tasks active · $retrying retrying · $waiting need approval. Stop cancels all."
       state == "waiting_network" -> "Waiting for network. Retry scheduled."
       state == "retrying" -> "Retrying task."
       state == "waiting_authorization" -> "Approval needed. Open Moose to continue."
       else -> "Running. Stop cancels all tasks."
     }
-    getSystemService(NotificationManager::class.java).notify(7301,
-      builder.setContentTitle(if (progressItems.size > 1) "Moose is running tasks" else "Moose task")
-        .setContentText(text).setContentIntent(conversationIntent(this, id)).build())
+    try {
+      getSystemService(NotificationManager::class.java).notify(7301,
+        builder.setContentTitle(if (progressItems.size > 1) "Moose is running tasks" else "Moose task")
+          .setContentText(text).setContentIntent(conversationIntent(this, id)).build())
+    } catch (_: SecurityException) { cancel("notification_permission_lost") }
   }
   fun ready(value: String) {
     handler.post {
@@ -194,6 +196,7 @@ class MooseExecutionService : Service() {
         .setContentText(if (failed) detail else "Open Moose to read the result.")
         .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
         .setAutoCancel(true).setOnlyAlertOnce(false)
+        .setDefaults(NotificationCompat.DEFAULT_SOUND)
         .setContentIntent(conversationIntent(context, id))
       manager.notify("conversation:$id", 7302, builder.build())
     }
