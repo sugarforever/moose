@@ -73,6 +73,12 @@ function MooseApp() {
   const [history, setHistory] = useState(false);
   const [artifactsVisible, setArtifactsVisible] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  useEffect(() => {
+    if (!moose.notificationNavigation) return;
+    setTab("chat");
+    setHistory(false);
+    setArtifactsVisible(false);
+  }, [moose.notificationNavigation]);
   const followBottom = useRef(true);
   const list = useRef<FlatList<ActivityGroupMessage>>(null);
   const activityMessages = groupActivities(moose.messages, moose.activity);

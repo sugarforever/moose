@@ -7,6 +7,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.*
+import android.net.Uri
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -25,6 +27,8 @@ class MooseExecutionService : Service() {
   private var lock: PowerManager.WakeLock? = null
   private var stopping = false
   private var notification: NotificationCompat.Builder? = null
+  private var progressItems: List<Map<String, Any>> = emptyList()
+  private val approvals = mutableSetOf<Long>()
   private val budget = Runnable { cancel("budget_expired") }
   private val handshake = Runnable { cancel("handshake_timeout") }
   private val unresponsive = Runnable {
@@ -60,7 +64,7 @@ class MooseExecutionService : Service() {
       val stop = PendingIntent.getService(this, 1,
         Intent(this, MooseExecutionService::class.java).setAction(ACTION_STOP).putExtra("token", requested),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-      val launch = packageManager.getLaunchIntentForPackage(packageName)
+      val launch = conversationIntent(this, null)
       val notification = NotificationCompat.Builder(this, CHANNEL)
         .setSmallIcon(android.R.drawable.stat_notify_sync)
         .setContentTitle("Moose is running tasks")
@@ -68,7 +72,7 @@ class MooseExecutionService : Service() {
         .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
         .setOngoing(true).setOnlyAlertOnce(true)
         .addAction(android.R.drawable.ic_media_pause, "Stop", stop)
-      if (launch != null) notification.setContentIntent(PendingIntent.getActivity(this, 0, launch, PendingIntent.FLAG_IMMUTABLE))
+      notification.setContentIntent(launch)
       this.notification = notification
       ServiceCompat.startForeground(this, 7301, notification.build(),
         if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)
@@ -87,16 +91,39 @@ class MooseExecutionService : Service() {
     }
     return START_NOT_STICKY
   }
-  fun waiting(value: Boolean) {
+  fun waiting(id: Long, value: Boolean) {
     handler.post {
-      val builder = notification ?: return@post
-      if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-        cancel("notification_permission_lost")
-        return@post
-      }
-      if (!stopping) getSystemService(NotificationManager::class.java).notify(7301,
-        builder.setContentText(if (value) "Approval needed. Open Moose to continue." else "Up to 30 minutes. Stop cancels all tasks.").build())
+      if (value) approvals.add(id) else approvals.remove(id)
+      renderProgress()
     }
+  }
+  fun progress(items: List<Map<String, Any>>) {
+    handler.post {
+      progressItems = items
+      renderProgress()
+    }
+  }
+  private fun renderProgress() {
+    val builder = notification ?: return
+    if (!NotificationManagerCompat.from(this).areNotificationsEnabled() ||
+      (Build.VERSION.SDK_INT >= 26 && getSystemService(NotificationManager::class.java).getNotificationChannel(CHANNEL)?.importance == NotificationManager.IMPORTANCE_NONE)) {
+      cancel("notification_permission_lost")
+      return
+    }
+    if (stopping) return
+    val single = progressItems.singleOrNull()
+    val id = (single?.get("id") as? Number)?.toLong()
+    val state = if (id != null && approvals.contains(id)) "waiting_authorization" else single?.get("state") as? String
+    val text = when {
+      progressItems.size > 1 -> "${progressItems.size} tasks active. Stop cancels all tasks."
+      state == "waiting_network" -> "Waiting for network. Retry scheduled."
+      state == "retrying" -> "Retrying task."
+      state == "waiting_authorization" -> "Approval needed. Open Moose to continue."
+      else -> "Running. Stop cancels all tasks."
+    }
+    getSystemService(NotificationManager::class.java).notify(7301,
+      builder.setContentTitle(if (progressItems.size > 1) "Moose is running tasks" else "Moose task")
+        .setContentText(text).setContentIntent(conversationIntent(this, id)).build())
   }
   fun ready(value: String) {
     handler.post {
@@ -145,6 +172,31 @@ class MooseExecutionService : Service() {
   }
   companion object {
     private const val CHANNEL = "moose-execution"
+    private const val RESULTS = "moose-task-results"
+    private fun conversationIntent(context: Context, id: Long?): PendingIntent? {
+      val launch = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return null
+      launch.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+      if (id != null) launch.action = Intent.ACTION_VIEW
+      if (id != null) launch.data = Uri.parse("moose://conversation/$id")
+      return PendingIntent.getActivity(context, if (id == null) 0 else (id % Int.MAX_VALUE).toInt(), launch,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    }
+    fun result(context: ReactContext, id: Long, failed: Boolean, detail: String) {
+      // Lifecycle is checked at delivery on the main queue, including warm Activity returns.
+      if (context.lifecycleState == com.facebook.react.common.LifecycleState.RESUMED || pendingStop(context)) return
+      if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return
+      val manager = context.getSystemService(NotificationManager::class.java)
+      if (Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(
+        NotificationChannel(RESULTS, "Task results", NotificationManager.IMPORTANCE_DEFAULT))
+      val builder = NotificationCompat.Builder(context, RESULTS)
+        .setSmallIcon(if (failed) android.R.drawable.stat_notify_error else android.R.drawable.stat_notify_sync_noanim)
+        .setContentTitle(if (failed) "Moose task failed" else "Moose task completed")
+        .setContentText(if (failed) detail else "Open Moose to read the result.")
+        .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+        .setAutoCancel(true).setOnlyAlertOnce(false)
+        .setContentIntent(conversationIntent(context, id))
+      manager.notify("conversation:$id", 7302, builder.build())
+    }
     private const val PREFS = "moose-execution-control"
     private const val ACTION_STOP = "dev.verysmallwoods.moose.STOP_EXECUTION"
     private const val BUDGET = 30L * 60 * 1000

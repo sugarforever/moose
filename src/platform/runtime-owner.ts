@@ -10,7 +10,7 @@ import { replaceRuntime } from "../termux/switch";
 import type { SetupPhase } from "../termux/setup";
 type Runtime = Awaited<ReturnType<typeof openMobile>>;
 function bind(runtime: Runtime) {
-  configureBackground((cause) => runtime.engine.stopAll(cause));
+  configureBackground((cause) => runtime.engine.stopAll(cause), runtime.engine);
   return runtime;
 }
 const owner = new RuntimeOwner(async () => bind(await openMobile()));

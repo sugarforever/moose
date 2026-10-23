@@ -5,8 +5,8 @@ export function readyExecution(
   acquire: ExecutionGuard,
   ensureReady: (signal: AbortSignal) => Promise<void>,
 ): ExecutionGuard {
-  return async (signal) => {
-    const lease = await acquire(signal);
+  return async (signal, ids) => {
+    const lease = await acquire(signal, ids);
     const operation = new AbortController();
     const abort = () => operation.abort();
     signal?.addEventListener("abort", abort, { once: true });

@@ -1,3 +1,9 @@
+import {
+  ExecutionNotifications,
+  notificationFailure,
+} from "../runtime/execution-notifications";
+import { executionStatus } from "../generated/runtime";
+import type { MobileEngine } from "../runtime/engine";
 import type { Cancellation } from "../runtime/execution-diagnostics";
 import {
   AppRegistry,
@@ -15,13 +21,16 @@ interface NativeBackground {
   start(token: string): Promise<void>;
   ready(token: string): void;
   stop(token: string): Promise<void>;
-  waiting(value: boolean): void;
+  waiting(id: number, value: boolean): void;
+  progress(items: { id: number; state: string; retries: number }[]): void;
+  result(id: number, failed: boolean, detail: string): Promise<void>;
   pendingStop(): boolean;
   stopDetail?(): Cancellation | null;
   acknowledgeStop(): void;
   addListener(event: "stop", listener: () => void): EventSubscription;
 }
 let owner: ExecutionOwner | undefined;
+let notifications: ExecutionNotifications | undefined;
 let cancelCurrent: (cause?: Cancellation) => Promise<void>;
 let changing = false;
 export function fenceRuntimeChange(value: boolean) {
@@ -38,7 +47,38 @@ function module() {
 }
 export function configureBackground(
   cancel: (cause?: Cancellation) => Promise<void>,
+  engine?: MobileEngine,
 ) {
+  if (Platform.OS === "android" && engine) {
+    const snapshot = (view: Awaited<ReturnType<MobileEngine["view"]>>) => ({
+      revision: JSON.stringify([
+        view.entries.at(-1),
+        view.docs?.["moose.execution"],
+        view.docs?.["moose.outcome"],
+      ]),
+      status: executionStatus(view),
+    });
+    notifications = new ExecutionNotifications({
+      read: async (id) => snapshot(await engine.view(id)),
+      watch: (id, listener) =>
+        engine.watch(id, (view) => listener(snapshot(view))),
+      progress: (items) =>
+        module()?.progress(
+          items.map(({ id, status }) => ({
+            id,
+            state: status.state,
+            retries: status.retries,
+          })),
+        ),
+      result: async (id, status) => {
+        await module()?.result(
+          id,
+          status.state === "failed",
+          notificationFailure(status.reason),
+        );
+      },
+    });
+  }
   cancelCurrent = cancel;
   if (Platform.OS !== "android" || owner) return;
   const bridge = module();
@@ -81,8 +121,8 @@ export function configureBackground(
       .catch(() => {});
   });
 }
-export function setApprovalWaiting(value: boolean) {
-  if (Platform.OS === "android") module()?.waiting(value);
+export function setApprovalWaiting(id: number, value: boolean) {
+  if (Platform.OS === "android") module()?.waiting(id, value);
 }
 export async function cancelInterruptedBackground(
   cancel: (cause?: Cancellation) => Promise<void>,
@@ -99,6 +139,7 @@ export async function cancelInterruptedBackground(
 }
 export async function acquireBackground(
   signal?: AbortSignal,
+  ids: readonly number[] = [],
 ): Promise<ExecutionLease> {
   if (changing) throw new Error("Execution environment is changing");
   if (!owner)
@@ -124,7 +165,25 @@ export async function acquireBackground(
   }
   if (signal?.aborted) throw new Error("Task cancelled");
   if (changing) throw new Error("Execution environment is changing");
-  return owner.acquire();
+  const lease = await owner.acquire();
+  let finish: (() => Promise<void>) | undefined;
+  try {
+    finish = await notifications?.track(ids);
+  } catch {
+    /* Notification observation must not prevent cancellation or execution. */
+  }
+  return {
+    signal: lease.signal,
+    release: async () => {
+      try {
+        await finish?.();
+      } catch {
+        /* The committed task result remains available in chat. */
+      } finally {
+        await lease.release();
+      }
+    },
+  };
 }
 export function registerBackgroundTask() {
   if (Platform.OS !== "android") return;
