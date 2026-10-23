@@ -1,3 +1,5 @@
+import { Platform } from "react-native";
+import { createIshWorkspaceFactory } from "./ish";
 import { readyExecution } from "../termux/recovery";
 import { acquireBackground, setApprovalWaiting } from "./background";
 import { createExpoWorkspace } from "pi-durable-expo-env";
@@ -61,6 +63,10 @@ export async function openMobile() {
       nativeFetch as typeof fetch,
       (signal) => codexAuth.getAccessToken(signal),
     );
+    const ishFactory =
+      Platform.OS === "ios" && process.env.EXPO_PUBLIC_MOOSE_ISH === "1"
+        ? createIshWorkspaceFactory()
+        : undefined;
     const termuxFactory = await termux.factory();
     const permissions = await PermissionStore.open(
       database,
@@ -105,7 +111,9 @@ export async function openMobile() {
       models,
       defaultSettings,
       Date.now,
-      termuxFactory ?? ((workspaceId) => createExpoWorkspace({ workspaceId })),
+      ishFactory ??
+        termuxFactory ??
+        ((workspaceId) => createExpoWorkspace({ workspaceId })),
       {
         openDatabase: openCapabilityDatabase,
         fetcher: nativeFetch as typeof fetch,
@@ -124,7 +132,11 @@ export async function openMobile() {
       models,
       settings,
       permissions,
-      executionEnvironment: termuxFactory ? "termux" : "local",
+      executionEnvironment: ishFactory
+        ? "ish"
+        : termuxFactory
+          ? "termux"
+          : "local",
     };
   } catch (error) {
     try {

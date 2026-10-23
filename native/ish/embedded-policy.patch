@@ -1,0 +1,539 @@
+--- a/fs/fake.c
++++ b/fs/fake.c
+@@ -383,7 +383,9 @@
+     if (err != SQLITE_OK) {
+         printk("sqlite failed to close: %d\n", err);
+     }
+-    /* return realfs.umount(mount); */
++    /* All guest fd/inode references are gone before embedded mount retirement. */
++    if (close(mount->root_fd) < 0)
++        return errno_map();
+     return 0;
+ }
+ 
+--- a/kernel/time.c
++++ b/kernel/time.c
+@@ -189,8 +189,34 @@
+     struct timespec req;
+     req.tv_sec = req_ts.sec;
+     req.tv_nsec = req_ts.nsec;
+-    struct timespec rem;
+-    if (nanosleep(&req, &rem) < 0)
++    struct timespec rem = {0};
++    if (current->moose_domain) {
++        /* A host signal can arrive before nanosleep starts. Pending guest
++           signals coalesce, so do not depend on a second pthread_kill wake. */
++        if (req.tv_sec < 0 || req.tv_nsec < 0 || req.tv_nsec >= 1000000000)
++            return _EINVAL;
++        struct timespec now;
++        clock_gettime(CLOCK_MONOTONIC, &now);
++        int64_t deadline = (int64_t)now.tv_sec * 1000000000 + now.tv_nsec
++                + (int64_t)req.tv_sec * 1000000000 + req.tv_nsec;
++        for (;;) {
++            lock(&current->sighand->lock);
++            bool pending = !!(current->pending & ~current->blocked);
++            unlock(&current->sighand->lock);
++            clock_gettime(CLOCK_MONOTONIC, &now);
++            int64_t left = deadline - ((int64_t)now.tv_sec * 1000000000 + now.tv_nsec);
++            if (pending) {
++                if (rem_addr && left > 0) {
++                    struct timespec_ remaining = {left / 1000000000, left % 1000000000};
++                    if (user_put(rem_addr, remaining)) return _EFAULT;
++                }
++                return _EINTR;
++            }
++            if (left <= 0) break;
++            struct timespec slice = {0, left > 10000000 ? 10000000 : left};
++            nanosleep(&slice, NULL);
++        }
++    } else if (nanosleep(&req, &rem) < 0)
+         return errno_map();
+     if (rem_addr != 0) {
+         struct timespec_ rem_ts;
+--- a/kernel/memory.h
++++ b/kernel/memory.h
+@@ -35,6 +35,7 @@
+ #define LEAK_DEBUG 0
+ 
+ struct data {
++    size_t moose_bytes; /* counted shared backing, not duplicate COW views */
+     void *data; // immutable
+     size_t size; // also immutable
+     atomic_uint refcount;
+--- a/kernel/memory.c
++++ b/kernel/memory.c
+@@ -103,6 +103,8 @@
+     return true;
+ }
+ 
++static _Atomic size_t moose_backing_bytes;
++#define MOOSE_MEMORY_LIMIT (256u * 1024u * 1024u)
+ int pt_map(struct mem *mem, page_t start, pages_t pages, void *memory, size_t offset, unsigned flags) {
+     if (memory == MAP_FAILED)
+         return errno_map();
+@@ -110,10 +112,25 @@
+     // If this fails, the munmap in pt_unmap would probably fail.
+     assert((uintptr_t) memory % real_page_size == 0 || memory == vdso_data);
+ 
++    size_t moose_bytes = current && current->moose_domain && memory != vdso_data
++            ? pages * PAGE_SIZE + offset : 0;
++    size_t used = atomic_load(&moose_backing_bytes);
++    if (moose_bytes) {
++        do {
++            if (moose_bytes > MOOSE_MEMORY_LIMIT || used > MOOSE_MEMORY_LIMIT - moose_bytes) {
++                munmap(memory, pages * PAGE_SIZE + offset);
++                return _ENOMEM;
++            }
++        } while (!atomic_compare_exchange_weak(&moose_backing_bytes, &used, used + moose_bytes));
++    }
+     struct data *data = malloc(sizeof(struct data));
+-    if (data == NULL)
++    if (data == NULL) {
++        atomic_fetch_sub(&moose_backing_bytes, moose_bytes);
++        if (memory != vdso_data) munmap(memory, pages * PAGE_SIZE + offset);
+         return _ENOMEM;
++    }
+     *data = (struct data) {
++        .moose_bytes = moose_bytes,
+         .data = memory,
+         .size = pages * PAGE_SIZE + offset,
+ 
+@@ -160,6 +177,7 @@
+             if (data->fd != NULL) {
+                 fd_close(data->fd);
+             }
++            atomic_fetch_sub(&moose_backing_bytes, data->moose_bytes);
+             free(data);
+         }
+     }
+--- a/kernel/fs.c
++++ b/kernel/fs.c
+@@ -237,6 +237,7 @@
+ }
+ 
+ dword_t sys_read(fd_t fd_no, addr_t buf_addr, dword_t size) {
++    if (current->moose_domain && size > 16 * 1024 * 1024) return _EINVAL;
+     STRACE("read(%d, 0x%x, %d)", fd_no, buf_addr, size);
+     char *buf = (char *) malloc(size);
+     if (buf == NULL)
+@@ -270,6 +271,7 @@
+ }
+ 
+ dword_t sys_write(fd_t fd_no, addr_t buf_addr, dword_t size) {
++    if (current->moose_domain && size > 16 * 1024 * 1024) return _EINVAL;
+     // FIXME this is a DOS vector, should ideally use vectorized I/O
+     char *buf = malloc(size);
+     if (buf == NULL)
+@@ -296,6 +298,8 @@
+ // by the inefficiency of the emulator.
+ 
+ static struct iovec_ *read_iovec(addr_t iovec_addr, unsigned iovec_count) {
++    if (current->moose_domain && iovec_count > 1024)
++        return ERR_PTR(_EINVAL);
+     dword_t iovec_size = sizeof(struct iovec_) * iovec_count;
+     struct iovec_ *iovec = malloc(iovec_size);
+     if (iovec == NULL)
+@@ -320,6 +324,10 @@
+     if (IS_ERR(iovec))
+         return PTR_ERR(iovec);
+     size_t io_size = iovec_size(iovec, iovec_count);
++    if (current->moose_domain && io_size > 16 * 1024 * 1024) {
++        free(iovec);
++        return _EINVAL;
++    }
+     char *buf = malloc(io_size);
+     if (buf == NULL) {
+         free(iovec);
+@@ -354,6 +362,10 @@
+     if (IS_ERR(iovec))
+         return PTR_ERR(iovec);
+     size_t io_size = iovec_size(iovec, iovec_count);
++    if (current->moose_domain && io_size > 16 * 1024 * 1024) {
++        free(iovec);
++        return _EINVAL;
++    }
+     char *buf = malloc(io_size);
+     if (buf == NULL) {
+         free(iovec);
+@@ -415,6 +427,7 @@
+ }
+ 
+ dword_t sys_pread(fd_t f, addr_t buf_addr, dword_t size, off_t_ off) {
++    if (current->moose_domain && size > 16 * 1024 * 1024) return _EINVAL;
+     STRACE("pread(%d, 0x%x, %d, %d)", f, buf_addr, size, off);
+     struct fd *fd = f_get(f);
+     if (fd == NULL)
+@@ -452,6 +465,7 @@
+ }
+ 
+ dword_t sys_pwrite(fd_t f, addr_t buf_addr, dword_t size, off_t_ off) {
++    if (current->moose_domain && size > 16 * 1024 * 1024) return _EINVAL;
+     STRACE("pwrite(%d, 0x%x, %d, %d)", f, buf_addr, size, off);
+     struct fd *fd = f_get(f);
+     if (fd == NULL)
+@@ -883,7 +897,7 @@
+     char path[MAX_PATH];
+     if (user_read_string(path_addr, path, sizeof(path)))
+         return _EFAULT;
+-    return generic_setattrat(NULL, path, make_attr(size, size), true);
++    return generic_setattrat(AT_PWD, path, make_attr(size, size), true);
+ }
+ 
+ dword_t sys_ftruncate64(fd_t f, dword_t size_low, dword_t size_high) {
+--- a/fs/real.c
++++ b/fs/real.c
+@@ -130,7 +130,32 @@
+     return res;
+ }
+ 
++#define MOOSE_FILE_LIMIT (16 * 1024 * 1024)
++static pthread_mutex_t moose_file_lock = PTHREAD_MUTEX_INITIALIZER;
++static bool moose_bounded_file(struct fd *fd) {
++    return current && current->moose_domain && S_ISREG(fd->type);
++}
++static int moose_check_write(struct fd *fd, size_t size, off_t offset) {
++    if (fcntl(fd->real_fd, F_GETFL) & O_APPEND) {
++        struct stat stat;
++        if (fstat(fd->real_fd, &stat) < 0)
++            return errno_map();
++        offset = stat.st_size;
++    }
++    if (offset < 0 || size > MOOSE_FILE_LIMIT || offset > MOOSE_FILE_LIMIT - size)
++        return _EFBIG;
++    return 0;
++}
+ ssize_t realfs_write(struct fd *fd, const void *buf, size_t bufsize) {
++    if (moose_bounded_file(fd)) {
++        pthread_mutex_lock(&moose_file_lock);
++        off_t offset = lseek(fd->real_fd, 0, SEEK_CUR);
++        int error = moose_check_write(fd, bufsize, offset);
++        ssize_t result = error < 0 ? error : write(fd->real_fd, buf, bufsize);
++        if (result == -1) result = errno_map();
++        pthread_mutex_unlock(&moose_file_lock);
++        return result;
++    }
+     ssize_t res = write(fd->real_fd, buf, bufsize);
+     if (res < 0)
+         return errno_map();
+@@ -145,6 +170,20 @@
+ }
+ 
+ ssize_t realfs_pwrite(struct fd *fd, const void *buf, size_t bufsize, off_t off) {
++    if (moose_bounded_file(fd)) {
++        pthread_mutex_lock(&moose_file_lock);
++        /* Darwin honors pwrite's explicit offset even with O_APPEND. Check
++           both that offset and the EOF append position (for other hosts). */
++        int error;
++        if (off < 0 || bufsize > MOOSE_FILE_LIMIT || off > MOOSE_FILE_LIMIT - bufsize)
++            error = _EFBIG;
++        else
++            error = moose_check_write(fd, bufsize, off);
++        ssize_t result = error < 0 ? error : pwrite(fd->real_fd, buf, bufsize, off);
++        if (result == -1) result = errno_map();
++        pthread_mutex_unlock(&moose_file_lock);
++        return result;
++    }
+     ssize_t res = pwrite(fd->real_fd, buf, bufsize, off);
+     if (res < 0)
+         return errno_map();
+@@ -335,6 +374,8 @@
+ }
+ 
+ int realfs_truncate(struct mount *mount, const char *path, off_t_ size) {
++    if (current && current->moose_domain && size > MOOSE_FILE_LIMIT)
++        return _EFBIG;
+     int fd = openat(mount->root_fd, fix_path(path), O_RDWR);
+     if (fd < 0)
+         return errno_map();
+@@ -370,6 +411,8 @@
+ }
+ 
+ int realfs_fsetattr(struct fd *fd, struct attr attr) {
++    if (current && current->moose_domain && attr.type == attr_size && attr.size > MOOSE_FILE_LIMIT)
++        return _EFBIG;
+     int real_fd = fd->real_fd;
+     int err;
+     switch (attr.type) {
+--- a/kernel/fork.c
++++ b/kernel/fork.c
+@@ -153,7 +153,7 @@
+ 
+     struct task *task = task_create_(current);
+     if (task == NULL)
+-        return _ENOMEM;
++        return errno == EAGAIN ? _EAGAIN : _ENOMEM;
+     int err = copy_task(task, flags, stack, ptid, tls, ctid);
+     if (err < 0) {
+         // FIXME: there is a window between task_create_ and task_destroy where
+@@ -183,7 +183,13 @@
+         send_signal(current, SIGTRAP_, SIGINFO_NIL);
+     }
+ 
+-    task_start(task);
++    err = task_start(task);
++    if (err < 0) {
++        task_discard_unstarted(task);
++        if (flags & CLONE_VFORK_)
++            cond_destroy(&vfork.cond);
++        return err;
++    }
+ 
+     if (flags & CLONE_VFORK_) {
+         lock(&vfork.lock);
+--- a/kernel/exec.c
++++ b/kernel/exec.c
+@@ -585,11 +585,11 @@
+         return err;
+ 
+     // setuid/setgid
+-    if (stat.mode & S_ISUID) {
++    if (!current->moose_domain && (stat.mode & S_ISUID)) {
+         current->suid = current->euid;
+         current->euid = stat.uid;
+     }
+-    if (stat.mode & S_ISGID) {
++    if (!current->moose_domain && (stat.mode & S_ISGID)) {
+         current->sgid = current->egid;
+         current->egid = stat.gid;
+     }
+--- a/kernel/task.h
++++ b/kernel/task.h
+@@ -15,6 +15,7 @@
+ // everything here is private to the thread executing this task and needs no
+ // locking, unless otherwise specified
+ struct task {
++    unsigned moose_domain; /* inherited by fork; host-assigned only */
+     struct cpu_state cpu;
+     struct mm *mm; // locked by general_lock
+     struct mem *mem; // pointer to mm.mem, for convenience
+@@ -187,7 +188,8 @@
+ #define MAX_PID (1 << 15) // oughta be enough
+ 
+ // TODO document
+-void task_start(struct task *task);
++int task_start(struct task *task);
++void task_discard_unstarted(struct task *task);
+ void task_run_current(void);
+ 
+ extern void (*exit_hook)(struct task *task, int code);
+--- a/kernel/fs.h
++++ b/kernel/fs.h
+@@ -71,6 +71,7 @@
+ int access_check(struct statbuf *stat, int check);
+ 
+ struct mount {
++    unsigned moose_domain;
+     const char *point;
+     const char *source;
+     const char *info;
+--- a/fs/mount.c
++++ b/fs/mount.c
+@@ -4,6 +4,7 @@
+ #include "kernel/fs.h"
+ #include "fs/path.h"
+ #include "fs/real.h"
++#include "kernel/task.h"
+ 
+ #define MAX_FILESYSTEMS 10
+ static const struct fs_ops *filesystems[MAX_FILESYSTEMS] = {
+@@ -29,6 +30,8 @@
+     struct mount *mount = NULL;
+     assert(!list_empty(&mounts)); // this would mean there's no root FS mounted
+     list_for_each_entry(&mounts, mount, mounts) {
++        if (mount->moose_domain != (current ? current->moose_domain : 0))
++            continue;
+         size_t n = strlen(mount->point);
+         if (strncmp(path, mount->point, n) == 0 && (path[n] == '/' || path[n] == '\0'))
+             break;
+@@ -54,6 +57,7 @@
+     struct mount *new_mount = malloc(sizeof(struct mount));
+     if (new_mount == NULL)
+         return _ENOMEM;
++    new_mount->moose_domain = current ? current->moose_domain : 0;
+     new_mount->point = strdup(point);
+     new_mount->source = strdup(source);
+     new_mount->info = strdup(info);
+--- a/kernel/init.c
++++ b/kernel/init.c
+@@ -55,6 +55,8 @@
+ // TODO error propagation
+ static struct task *construct_task(struct task *parent) {
+     struct task *task = task_create_(parent);
++    if (!task)
++        return ERR_PTR(errno == EAGAIN ? _EAGAIN : _ENOMEM);
+ 
+     struct tgroup *group = malloc(sizeof(struct tgroup));
+     *group = (struct tgroup) {};
+@@ -100,12 +102,16 @@
+     return 0;
+ }
+ 
+-int become_new_init_child(void) {
++int become_new_init_child_domain(unsigned domain) {
+     // locking? who needs locking?!
+     struct task *init = pid_get_task(1);
+     assert(init != NULL);
+ 
++    /* Only the serialized embedding owner calls this. Set inherited domain
++       before construct_task opens /, then restore the supervisor domain. */
++    init->moose_domain = domain;
+     struct task *task = construct_task(init);
++    init->moose_domain = 0;
+     if (IS_ERR(task))
+         return PTR_ERR(task);
+ 
+@@ -120,6 +126,10 @@
+     return 0;
+ }
+ 
++int become_new_init_child(void) {
++    return become_new_init_child_domain(0);
++}
++
+ extern int console_major;
+ extern int console_minor;
+ void set_console_device(int major, int minor) {
+--- a/kernel/calls.c
++++ b/kernel/calls.c
+@@ -260,7 +260,20 @@
+     struct cpu_state *cpu = &current->cpu;
+     if (interrupt == INT_SYSCALL) {
+         unsigned syscall_num = cpu->eax;
+-        if (syscall_num >= NUM_SYSCALLS || syscall_table[syscall_num] == NULL) {
++        bool moose_denied = syscall_num == 340 && current->moose_domain && cpu->ebx != 0 && cpu->ebx != current->pid;
++        if (current->moose_domain) {
++            switch (syscall_num) {
++                case 14: case 61: case 297: /* mknod/chroot/mknodat */
++                case 21: case 26: case 52: /* mount, ptrace, umount */
++                case 102: case 359: case 360: /* socketcall, socket, socketpair */
++                case 169: case 88: /* reboot, reboot legacy */
++                case 96: case 97: case 101: case 349: /* ioperm, kcmp */
++                    moose_denied = true;
++            }
++        }
++        if (moose_denied) {
++            cpu->eax = _EPERM;
++        } else if (syscall_num >= NUM_SYSCALLS || syscall_table[syscall_num] == NULL) {
+             printk("%d(%s) missing syscall %d\n", current->pid, current->comm, syscall_num);
+             cpu->eax = _ENOSYS;
+         } else {
+--- a/kernel/signal.c
++++ b/kernel/signal.c
+@@ -136,7 +136,6 @@
+     lock(&pids_lock);
+     struct pid *pid = pid_get(pgid);
+     if (pid == NULL) {
+-        unlock(&pids_lock);
+         return _ESRCH;
+     }
+     struct tgroup *tgroup;
+@@ -694,6 +693,8 @@
+ }
+ 
+ static int kill_task(struct task *task, dword_t sig) {
++    if (current->moose_domain && current->moose_domain != task->moose_domain)
++        return _EPERM;
+     if (!superuser() &&
+             current->uid != task->uid &&
+             current->uid != task->suid &&
+--- a/kernel/task.c
++++ b/kernel/task.c
+@@ -6,6 +6,8 @@
+ #include "kernel/task.h"
+ #include "kernel/memory.h"
+ #include "emu/tlb.h"
++#include "fs/fd.h"
++#include "kernel/mm.h"
+ 
+ __thread struct task *current;
+ 
+@@ -17,7 +19,7 @@
+ }
+ 
+ struct pid *pid_get(dword_t id) {
+-    if (id > sizeof(pids)/sizeof(pids[0]))
++    if (id >= sizeof(pids)/sizeof(pids[0]))
+         return NULL;
+     struct pid *pid = &pids[id];
+     if (pid_empty(pid))
+@@ -42,6 +44,21 @@
+ 
+ struct task *task_create_(struct task *parent) {
+     lock(&pids_lock);
++    /* Reserve task slots under the PID lock, before copying memory or creating
++       host threads. Count threads and processes together within the domain. */
++    if (parent && parent->moose_domain) {
++        unsigned owned = 0;
++        for (unsigned i = 1; i <= MAX_PID; i++) {
++            struct task *other = pids[i].task;
++            if (other && other->moose_domain == parent->moose_domain)
++                owned++;
++        }
++        if (owned >= 32) {
++            unlock(&pids_lock);
++            errno = EAGAIN;
++            return NULL;
++        }
++    }
+     static int cur_pid = 0;
+     do {
+         cur_pid++;
+@@ -53,8 +70,11 @@
+     list_init(&pid->pgroup);
+ 
+     struct task *task = malloc(sizeof(struct task));
+-    if (task == NULL)
++    if (task == NULL) {
++        unlock(&pids_lock);
++        errno = ENOMEM;
+         return NULL;
++    }
+     *task = (struct task) {};
+     if (parent != NULL)
+         *task = *parent;
+@@ -120,11 +140,42 @@
+     pthread_attr_setdetachstate(&task_thread_attr, PTHREAD_CREATE_DETACHED);
+ }
+ 
+-void task_start(struct task *task) {
+-    if (pthread_create(&task->thread, &task_thread_attr, task_thread, task) < 0)
+-        die("could not create thread");
++int task_start(struct task *task) {
++    /* pthread_create returns a positive errno, not -1. Never kill the app. */
++    int error = pthread_create(&task->thread, &task_thread_attr, task_thread, task);
++    return error ? _EAGAIN : 0;
+ }
+ 
++/* Fully constructed but never scheduled: no guest instructions or child tasks. */
++void task_discard_unstarted(struct task *task) {
++    mm_release(task->mm);
++    fdtable_release(task->files);
++    fs_info_release(task->fs);
++    lock(&pids_lock);
++    sighand_release(task->sighand);
++    struct sigqueue *sigqueue, *tmp;
++    list_for_each_entry_safe(&task->queue, sigqueue, tmp, queue) {
++        list_remove(&sigqueue->queue);
++        free(sigqueue);
++    }
++    struct tgroup *group = task->group;
++    lock(&group->lock);
++    list_remove(&task->group_links);
++    bool empty = list_empty(&group->threads);
++    if (empty) {
++        task_leave_session(task);
++        list_remove(&group->pgroup);
++    }
++    unlock(&group->lock);
++    if (empty) {
++        cond_destroy(&group->child_exit);
++        cond_destroy(&group->stopped_cond);
++        free(group);
++    }
++    task_destroy(task);
++    unlock(&pids_lock);
++}
++
+ int_t sys_sched_yield(void) {
+     STRACE("sched_yield()");
+     sched_yield();

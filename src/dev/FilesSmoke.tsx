@@ -4,6 +4,7 @@ import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { openDatabaseAsync, deleteDatabaseAsync } from "expo-sqlite";
 import { createExpoWorkspace } from "pi-durable-expo-env";
 import { SerialSqliteDatabase } from "../generated/runtime";
+import { createIshWorkspaceFactory } from "../platform/ish";
 import { runFileSmoke } from "./files-smoke";
 
 /** Explicit developer entry. Never opens the user's database or credentials. */
@@ -22,8 +23,10 @@ export function FilesSmokeApp() {
             new SerialSqliteDatabase(
               await openDatabaseAsync("moose-files-smoke.sqlite"),
             ),
-          (workspaceId) =>
-            createExpoWorkspace({ workspaceId: `smoke-${workspaceId}` }),
+          process.env.EXPO_PUBLIC_MOOSE_ISH === "1"
+            ? createIshWorkspaceFactory("smoke-")
+            : (workspaceId) =>
+                createExpoWorkspace({ workspaceId: `smoke-${workspaceId}` }),
         );
         const result = `Moose filesystem smoke passed\n\n${checks.map((check) => `✓ ${check}`).join("\n")}`;
         console.log(result);

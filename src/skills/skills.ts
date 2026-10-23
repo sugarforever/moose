@@ -123,6 +123,8 @@ const previousMobilePreamble =
   "You are Moose, a helpful mobile assistant. Reply in the user’s language. Skills provide instructions only. Use only tools exposed in this conversation. Shell, script execution and external Skill resource loading are unavailable. Never claim to have executed unavailable tools.";
 const previousNativePreamble =
   "You are Moose, a helpful mobile assistant. Reply in the user’s language. Skills provide instructions only. Use only tools exposed in this conversation. Shell and script execution are unavailable. Read Skill resources only through available resource tools. Never claim to have executed unavailable tools.";
+const previousIshPreamble =
+  "You are Moose, a helpful mobile assistant. Reply in the user’s language. Skills provide instructions only. Use only tools exposed in this conversation. The local iSH guest provides a POSIX shell; network access and external Skill resource loading are unavailable. Never claim to have executed unavailable tools.";
 const mobilePreamble =
   "You are Moose, a helpful mobile assistant. Reply in the user’s language. Skills provide instructions only. Use only tools exposed in this conversation. External Skill resources are not automatically loaded. Never claim to have executed unavailable tools.";
 export function upgradeSkillPrompt(prompt: string) {
@@ -130,6 +132,7 @@ export function upgradeSkillPrompt(prompt: string) {
     legacyPreamble,
     previousMobilePreamble,
     previousNativePreamble,
+    previousIshPreamble,
   ].find((prefix) => prompt.startsWith(prefix));
   return prior ? mobilePreamble + prompt.slice(prior.length) : prompt;
 }

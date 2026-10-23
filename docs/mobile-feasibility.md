@@ -55,3 +55,7 @@ npm audit still reports 22 upstream findings in the installation tree, concentra
 ## Local Expo file environment integration
 
 Moose now injects the device filesystem through the npm-published `pi-durable-expo-env`, reusing Pi's read, write, and edit tools. The platform factory lives in `src/platform/open.ts`; the runtime receives only portable interfaces. Workspaces are isolated per conversation; checkpoints do not save or roll back files. See [File environment integration](mobile-files.md) for detailed semantics, native configuration, and validation for this change.
+
+## Optional iOS iSH environment
+
+`EXPO_PUBLIC_MOOSE_ISH=1` selects the embedded iSH backend, which provides file tools and a POSIX shell through the portable `ExecutionEnv` without introducing Node into Hermes. See the [phone setup guide](ios-ish-setup-guide.md) and [execution notes](ios-ish-execution.md). The default Expo environment has no shell; Android can separately opt into Termux.

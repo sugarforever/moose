@@ -1,7 +1,10 @@
 import type { Context } from "@earendil-works/chord";
 import type { EnvTarget } from "@earendil-works/pi-durable";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
-export type MobileWorkspaceFactory = (workspaceId: string) => ExecutionEnv;
+export type MobileWorkspaceFactory = ((workspaceId: string) => ExecutionEnv) & {
+  /** Explicit capability; never infer shell availability by trying a command. */
+  shell?: boolean;
+};
 
 /** Owned by one engine; Harness must finish its tools before this pool closes. */
 export class MobileFileEnvironments {

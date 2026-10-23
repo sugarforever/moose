@@ -6,6 +6,12 @@ const state = vi.hoisted(() => ({
   native: undefined as any,
   db: undefined as any,
 }));
+vi.mock("react-native", () => ({ Platform: { OS: "ios" } }));
+vi.mock("../src/platform/ish", () => ({
+  createIshWorkspaceFactory: () => {
+    throw new Error("iSH flag must remain off in this fixture");
+  },
+}));
 vi.mock("expo-sqlite", () => ({ openDatabaseAsync: async () => state.native }));
 vi.mock("pi-durable-expo-env", () => ({
   createExpoWorkspace: () => ({ cleanup: async () => {} }),

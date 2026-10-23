@@ -16,5 +16,7 @@ src/generated/
 .DS_Store
 *.log
 
-# Authored local Expo module source, not the generated root Android project.
+scripts/ish/__pycache__/
+
+# Authored local Expo module source.
 !vendor/moose-termux-native/android/

@@ -284,3 +284,54 @@ it("preserves native data and restores tools after switching local to Termux and
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it("iSH exposes its durable bash tool while retaining approved native executors", async () => {
+  const { createIshWorkspace } = await import("../src/runtime/ish");
+  const faux = fauxProvider();
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const factory = Object.assign(
+    (id: string) =>
+      createIshWorkspace(id, {
+        prepare: async () => {},
+        execute: async () => {
+          throw new Error("No guest execution expected");
+        },
+        cancel: async () => {},
+        cleanup: async () => {},
+        subscribe: () => () => {},
+      }),
+    { shell: true },
+  );
+  const engine = await MobileEngine.open(
+    db(),
+    models,
+    { provider: "faux", modelId: "faux-1" },
+    Date.now,
+    factory,
+    {
+      openDatabase: async () => db(),
+      fetcher: async () => new Response("{}"),
+      authorize: async () => true,
+    },
+  );
+  opened.push(engine);
+  const chat = await engine.newConversation();
+  const names = (await chat.agent(engine.context)).tools.map((t) => t.name);
+  expect(names).toContain("bash");
+  expect(names).toContain("http_request");
+  expect(names).toContain("database_query");
+  expect(names).toContain("artifact_create");
+  faux.setResponses([fauxAssistantMessage("Ready")]);
+  expect(
+    (
+      await (
+        await engine.submit(chat.id, "Describe available tools", "ish-profile")
+      ).wait(engine.context)
+    ).status,
+  ).toBe("done");
+  const context = JSON.stringify((await chat.context(engine.context)).entries);
+  expect(context).toContain("iSH POSIX shell");
+  expect(context).not.toContain("Termux workspace");
+  expect(context).not.toContain("No shell or eval");
+});

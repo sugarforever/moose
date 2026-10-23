@@ -42,6 +42,7 @@ import {
   createWriteTool,
   createEditTool,
 } from "@earendil-works/pi-durable/tools";
+import { createIshBashTool } from "./ish";
 import {
   MobileFileEnvironments,
   workspaceListTool,
@@ -286,6 +287,8 @@ export class MobileEngine {
     const files = workspaceFactory
       ? new MobileFileEnvironments(workspaceFactory)
       : undefined;
+    const ish = workspaceFactory?.shell === true;
+    const shell = ish || executionOptions.shell === true;
     if (files)
       registry.install(
         defineExtension({
@@ -294,8 +297,8 @@ export class MobileEngine {
             createReadTool(),
             createWriteTool(),
             createEditTool(),
-            ...(executionOptions.shell
-              ? [createBashTool()]
+            ...(shell
+              ? [ish ? createIshBashTool() : createBashTool()]
               : [workspaceListTool()]),
           ].map((tool) => ({
             ...tool,
@@ -312,9 +315,11 @@ export class MobileEngine {
           })),
           sections: [
             section("mobile-workspace", () =>
-              executionOptions.shell
-                ? "Use read, write, edit and bash in this conversation’s Termux workspace. All tools share the same directory. Use relative paths with all tools; /workspace is a file RPC alias, not a physical shell path. Run pwd in bash to discover its physical directory. Native shell commands have Termux app permissions, not container isolation. Other conversations start in separate directories. Checkpoints do not snapshot files. Never repeat a command automatically after an unknown outcome."
-                : "Use read, write, edit and workspace_list for files inside /workspace in this conversation’s app-private device workspace. Relative paths start at /workspace. Other conversations and new checkpoint branches have separate workspaces. File contents are not part of a conversation checkpoint. Shell and script execution are unavailable. Use advertised native tools for approved HTTP, stored documents and reports.",
+              ish
+                ? "Use read, write and edit for files inside /workspace and bash for the local iSH POSIX shell. They share this conversation’s persistent guest files. Other conversations and new checkpoint branches have separate roots. Files are not checkpointed. Guest network access is unavailable; use advertised native tools for approved HTTP, stored documents and reports. iOS suspension may pause commands. Never repeat a command automatically after an unknown outcome."
+                : executionOptions.shell
+                  ? "Use read, write, edit and bash in this conversation’s Termux workspace. All tools share the same directory. Use relative paths with all tools; /workspace is a file RPC alias, not a physical shell path. Run pwd in bash to discover its physical directory. Native shell commands have Termux app permissions, not container isolation. Other conversations start in separate directories. Checkpoints do not snapshot files. Never repeat a command automatically after an unknown outcome."
+                  : "Use read, write, edit and workspace_list for files inside /workspace in this conversation’s app-private device workspace. Relative paths start at /workspace. Other conversations and new checkpoint branches have separate workspaces. File contents are not part of a conversation checkpoint. Shell and script execution are unavailable. Use advertised native tools for approved HTTP, stored documents and reports.",
             ),
           ],
         }),
@@ -347,7 +352,7 @@ export class MobileEngine {
     if (capabilities)
       registry.install(
         capabilityExtension(capabilities, enabledSkills, {
-          termux: !!executionOptions.shell,
+          termux: !!executionOptions.shell && !ish,
         }),
       );
     const harness = await Harness.open(

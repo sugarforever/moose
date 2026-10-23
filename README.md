@@ -9,6 +9,7 @@ Moose v0.7.0 is an open source AI agent for iOS and Android powered by Pi Durabl
 - Finite recurring tasks with saved progress, cancellation, and recovery after restarting the app.
 - Install skills from HTTPS links and enable them independently for each conversation.
 - Default file tools from `pi-durable-expo-env`: `read`, `write`, `edit`, and `workspace_list`. Each conversation has a private workspace on the device.
+- Optional experimental embedded iSH file and POSIX shell execution on iOS; see [iOS setup](#ios-ish-installation-and-setup-experimental).
 - Optional experimental Termux file and command execution on Android, with in-app setup and connection. Native Termux device validation is still pending; see [setup and limitations](docs/termux.md).
 - OpenAI / Anthropic API keys and experimental ChatGPT / Codex subscription sign-in.
 - Compact conversations, native message action menus, keyboard avoidance, and phone rotation between portrait and landscape. Assistant replies render Markdown headings, lists, quotes, code blocks, links, and horizontally scrollable tables.
@@ -101,6 +102,75 @@ Individual files are limited to 8 MiB. The default environment supports reading,
 
 The file environment uses the published npm package `pi-durable-expo-env@0.1.0`, with its version and integrity pinned in the lockfile. It does not depend on sibling source directories or local package archives. See [file environment integration](docs/mobile-files.md) for update steps, the controlled native test entry point, and validation records.
 
+## iOS iSH installation and setup (experimental)
+
+See the [step-by-step iOS iSH setup guide](docs/ios-ish-setup-guide.md) for first-time setup, controlled tests, everyday operations, troubleshooting and a device acceptance checklist.
+
+The default iOS app needs only a model connection in **Settings**. To enable local shell execution, a developer must build a native client containing the embedded iSH core and enable it in the JavaScript bundle. There is currently no iOS execution-environment switch in Settings and no prebuilt IPA / TestFlight release from this repository.
+
+You do **not** install the separate iSH app, Termux, a companion server, or Linux packages on the iPhone. The build bundles a pinned Alpine x86 root filesystem; Moose initializes a private copy for each conversation on first use. No port, pairing key, or shell permission prompt needs configuring on the phone.
+
+### 1. Prepare the Mac
+
+The current build supports Apple Silicon macOS. Install full Xcode, open it once to finish setup, and install an iOS simulator runtime from Xcode Settings. Make sure Xcode is the active developer directory (`xcode-select -p` should point inside `Xcode.app`, rather than only Command Line Tools). Node.js must be 22.19 or later, as in [local development](#local-development).
+
+With Homebrew already installed, install the native build tools:
+
+```sh
+brew install python meson ninja llvm lld libarchive pkgconf
+export PATH="$(brew --prefix lld)/bin:$PATH"
+export PKG_CONFIG_PATH="$(brew --prefix libarchive)/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+xcodebuild -version
+xcrun --sdk iphonesimulator --show-sdk-path
+```
+
+Keep these exports in the terminal used for preparation. `lld` is required separately from LLVM. The preparation script does not install these tools itself.
+
+### 2. Build the embedded dependency
+
+From the Moose repository root on the PR #7 branch (or a later branch containing it):
+
+```sh
+npm ci
+npm run prepare:ish
+```
+
+Preparation downloads and verifies the pinned iSH source and Alpine rootfs, builds device and arm64 simulator libraries, and writes ignored artifacts under `modules/moose-ish/vendor/`. Keep network access available for the initial download. These generated files are local build inputs and must exist before native autolinking / compilation.
+
+### 3. Build and launch Moose with iSH enabled
+
+```sh
+EXPO_PUBLIC_MOOSE_ISH=1 npm run ios
+```
+
+This builds and installs a native development client on the simulator and starts Metro. **Expo Go cannot load iSH.** Setting the flag alone cannot add the native module to an older client; rebuild after preparing or changing native dependencies.
+
+For later development sessions, use the same flag when starting Metro:
+
+```sh
+EXPO_PUBLIC_MOOSE_ISH=1 npm start
+```
+
+Press `i` to reopen the simulator app. The `EXPO_PUBLIC_MOOSE_ISH` value is included in the JavaScript bundle; it is not an iPhone environment variable or an in-app setting. Starting Metro without the flag selects the default local Expo files again. Finish or stop active tasks before switching builds/backends. Expo and iSH files are not automatically migrated; switching back preserves the other backend's files.
+
+For a physical iPhone, connect it to the Mac and run `EXPO_PUBLIC_MOOSE_ISH=1 npm run ios -- --device`. Complete Xcode's device, development signing and provisioning setup for your Apple account, and enable Developer Mode if prompted by iOS. Physical-device installation, signing and background behavior have not been validated by this PR; the verified native path is the simulator.
+
+### 4. Configure a model and use the workspace
+
+Open Moose → **Settings**, select a provider, configure its API key or supported sign-in, and save. This is ordinary Moose model configuration; credentials are not passed to the guest shell. Start a conversation: `read`, `write`, `edit`, and `bash` share its `/workspace`. For example, ask Moose to write `hello.txt`, read it back with `cat hello.txt` through bash, and report the result. This conversational check makes model requests and may incur provider charges.
+
+Developers can instead run the controlled native smoke without a real model account:
+
+```sh
+EXPO_PUBLIC_MOOSE_ISH=1 EXPO_PUBLIC_MOOSE_FILES_SMOKE=1 npm run ios
+```
+
+The test screen reports `Moose filesystem smoke passed` after controlled SSE drives Pi write/edit/bash/read, persistence and workspace-isolation checks. Omit `EXPO_PUBLIC_MOOSE_FILES_SMOKE` when returning to the normal app; restart Metro when changing these flags.
+
+If startup reports **iSH native module is missing**, rerun `prepare:ish` and rebuild the development client. If downloads fail, check Mac network access and rerun preparation. Guest networking is intentionally disabled, so installing packages with `apk` or making guest network requests is unavailable; approved native HTTP tools remain separate. Shell commands use POSIX `/bin/sh`, run within explicit time/output/resource bounds, and may pause when iOS suspends Moose. Checkpoint branches have separate roots but do not snapshot files.
+
+See [iOS iSH execution notes](docs/ios-ish-execution.md) for exact limits, verification commands and license/source obligations. Before distributing **any binary linking iSH**, resolve the whole-program license and corresponding-source requirements, even if the backend flag is off. This PR does not publish a binary or establish App Store approval.
+
 ## Android Termux installation and setup (experimental)
 
 **Set up and connect Termux** in Moose checks and installs Node and locking utilities, deploys the service bundled in the APK, pairs automatically, and connects. You do not need to download or copy `service.mjs`, copy a public key, type a service startup command, or restart Moose to switch environments.
@@ -162,7 +232,7 @@ Current validation coverage:
 
 - iOS: Native debug build, installation, and operation on an iPhone 17 Pro simulator. Checks covered chat layout, message menus, keyboard avoidance, skill downloads and persistence, and local authentication callback listening and cancellation cleanup.
 - Android: Debug APK compilation, installation on an Android 35 emulator, and controlled foreground-service SSE / local file-tool / next-round execution with SQLite commits, Activity destruction/recreation, notification stopping, and force-stop persistence passed. Physical-device Doze, vendor power policies, the full 30-minute timeout, and real Termux operations remain unverified. Release assets exported successfully. [GitHub Actions successfully compiled a test APK](https://github.com/sugarforever/moose/actions/runs/39503789329) containing the native Termux setup module. Phone installation, permission grants, and real Termux operations have not yet been validated.
-- Expo Doctor: 19 of 20 checks passed. The remaining check concerns new-architecture metadata for the TCP library and missing public-directory metadata for the local Termux module; this is not a fully passing result.
+- Expo Doctor: 19 of 20 checks passed. The remaining check concerns new-architecture metadata for the TCP library and missing public-directory metadata for the local Termux and iSH modules; this is not a fully passing result.
 - File environment: The local package completed real file reads, writes, edits, SQLite reopening, and workspace isolation checks on the iOS simulator using controlled OpenAI SSE responses, without real credentials or billable requests.
 
 `dist/` contains JavaScript / Hermes release assets, **not an APK or IPA**. Build native apps locally or use the repository's EAS development, preview, and production configurations. EAS builds require your own Expo project, signing, and device configuration. EAS cloud builds and store publication have not been validated for this version. GitHub Actions test APK compilation is documented above.

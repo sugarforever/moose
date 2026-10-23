@@ -264,3 +264,12 @@ it("includes installed manifests and UTF-8 bytes in the selected Skill prompt li
     ),
   ).toThrow("64 KiB");
 });
+
+it("migrates the iSH preamble to current native capabilities without altering Skill text", () => {
+  const prior =
+    "You are Moose, a helpful mobile assistant. Reply in the user’s language. Skills provide instructions only. Use only tools exposed in this conversation. The local iSH guest provides a POSIX shell; network access and external Skill resource loading are unavailable. Never claim to have executed unavailable tools.";
+  const suffix = "\n<skill>Keep shell instructions unchanged</skill>";
+  expect(upgradeSkillPrompt(prior + suffix)).toBe(
+    selectedSkillPrompt([], []) + suffix,
+  );
+});
