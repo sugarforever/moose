@@ -211,11 +211,299 @@ it("blocks environment switching until active repeat jobs are stopped", async ()
   const chat = await engine.newConversation();
   const task = await engine.repeat(chat.id, "repeat", 60000, 2);
   await expect(engine.assertEnvironmentSwitchIdle()).rejects.toThrow(
-    "重复任务",
+    "repeating task",
   );
   await engine.stopTask(task);
   await until(
     async () => (await engine.repeatStatus(task)).status === "terminal",
   );
   await expect(engine.assertEnvironmentSwitchIdle()).resolves.toBeUndefined();
+});
+
+it("admits model work only after foreground readiness and holds ownership without a UI waiter", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "moose-background-"));
+  cleanup.push(() => rm(dir, { recursive: true, force: true }));
+  const { faux, models, settings } = fixture();
+  faux.setResponses([fauxAssistantMessage("Background answer")]);
+  let ready!: () => void;
+  const barrier = new Promise<void>((resolve) => {
+    ready = resolve;
+  });
+  let active = 0;
+  const engine = await MobileEngine.open(
+    database(join(dir, "session.sqlite")),
+    models,
+    settings,
+    Date.now,
+    undefined,
+    undefined,
+    {},
+    async () => {
+      await barrier;
+      active++;
+      return {
+        signal: new AbortController().signal,
+        release: async () => {
+          active--;
+        },
+      };
+    },
+  );
+  cleanup.push(() => engine.close());
+  const chat = await engine.newConversation();
+  const pending = engine.submit(chat.id, "Continue", "background-id");
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  expect(faux.state.callCount).toBe(0);
+  ready();
+  await pending; // Deliberately never call receipt.wait from a UI.
+  await until(
+    async () =>
+      active === 0 &&
+      (await engine.messages(chat.id)).some(
+        (m) => m.text === "Background answer",
+      ),
+  );
+  expect(faux.state.callCount).toBe(1);
+});
+
+it("releases repeat protection while waiting and notification stop persists cancellation", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "moose-background-repeat-"));
+  cleanup.push(() => rm(dir, { recursive: true, force: true }));
+  const { faux, models, settings } = fixture();
+  faux.setResponses([fauxAssistantMessage("One")]);
+  let active = 0;
+  const path = join(dir, "session.sqlite");
+  let engine = await MobileEngine.open(
+    database(path),
+    models,
+    settings,
+    Date.now,
+    undefined,
+    undefined,
+    {},
+    async () => {
+      active++;
+      return {
+        signal: new AbortController().signal,
+        release: async () => {
+          active--;
+        },
+      };
+    },
+  );
+  const chat = await engine.newConversation();
+  const task = await engine.repeat(chat.id, "Repeat", 60000, 2);
+  await until(
+    async () =>
+      (await engine.repeatStatus(task)).completed === 1 && active === 0,
+  );
+  await engine.stopAll();
+  await engine.close();
+  engine = await MobileEngine.open(database(path), models, settings);
+  cleanup.push(() => engine.close());
+  await engine.resume();
+  await until(
+    async () => (await engine.repeatStatus(task)).status === "terminal",
+  );
+  expect((await engine.repeatStatus(task)).outcome).toBe("aborted");
+  expect(faux.state.callCount).toBe(1);
+});
+
+it("keeps one service for two conversations and notification stop aborts the remaining answer", async () => {
+  const { ExecutionOwner } = await import("../src/runtime/execution-owner");
+  const dir = await mkdtemp(join(tmpdir(), "moose-multi-background-"));
+  cleanup.push(() => rm(dir, { recursive: true, force: true }));
+  const { faux, models, settings } = fixture();
+  let finishFirst!: () => void;
+  faux.setResponses([
+    () =>
+      new Promise((resolve) => {
+        finishFirst = () => resolve(fauxAssistantMessage("First done"));
+      }),
+    (_context, options) =>
+      new Promise((resolve) => {
+        const abort = () =>
+          resolve(fauxAssistantMessage("", { stopReason: "aborted" }));
+        options?.signal?.addEventListener("abort", abort, { once: true });
+        if (options?.signal?.aborted) abort();
+      }),
+  ]);
+  let service = false;
+  let starts = 0;
+  let engine!: MobileEngine;
+  const owner = new ExecutionOwner(
+    {
+      start: async () => {
+        service = true;
+        starts++;
+      },
+      stop: async () => {
+        service = false;
+      },
+    },
+    () => engine.stopAll(),
+  );
+  engine = await MobileEngine.open(
+    database(join(dir, "db.sqlite")),
+    models,
+    settings,
+    Date.now,
+    undefined,
+    undefined,
+    {},
+    () => owner.acquire(),
+  );
+  cleanup.push(() => engine.close());
+  const a = await engine.newConversation();
+  const b = await engine.newConversation();
+  const first = await engine.submit(a.id, "A", "a");
+  await until(async () => faux.state.callCount === 1);
+  const second = await engine.submit(b.id, "B", "b");
+  await until(async () => faux.state.callCount === 2);
+  expect(starts).toBe(1);
+  finishFirst();
+  await first.wait(engine.context);
+  expect(service).toBe(true);
+  await owner.cancel();
+  expect((await second.wait(engine.context)).status).toBe("unanswered");
+  expect(service).toBe(false);
+  expect((await engine.messages(a.id)).at(-1)?.text).toBe("First done");
+});
+
+it("protects an interrupted persisted answer before resuming its stable submission", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "moose-background-recovery-"));
+  cleanup.push(() => rm(dir, { recursive: true, force: true }));
+  const { faux, models, settings } = fixture();
+  faux.setResponses([
+    (_context, options) =>
+      new Promise((resolve) => {
+        const interrupted = () =>
+          resolve(fauxAssistantMessage("", { stopReason: "aborted" }));
+        options?.signal?.addEventListener("abort", interrupted, { once: true });
+        if (options?.signal?.aborted) interrupted();
+      }),
+    fauxAssistantMessage("Recovered committed input"),
+  ]);
+  const path = join(dir, "db.sqlite");
+  let engine = await MobileEngine.open(database(path), models, settings);
+  const chat = await engine.newConversation();
+  await engine.submit(chat.id, "Stable recovery", "recover-stable-id");
+  await until(async () => faux.state.callCount === 1);
+  await engine.close();
+  let ready!: () => void;
+  const barrier = new Promise<void>((resolve) => {
+    ready = resolve;
+  });
+  let leases = 0;
+  engine = await MobileEngine.open(
+    database(path),
+    models,
+    settings,
+    Date.now,
+    undefined,
+    undefined,
+    {},
+    async () => {
+      await barrier;
+      leases++;
+      return {
+        signal: new AbortController().signal,
+        release: async () => {
+          leases--;
+        },
+      };
+    },
+  );
+  cleanup.push(() => engine.close());
+  const resuming = engine.resume();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(faux.state.callCount).toBe(1);
+  ready();
+  await resuming;
+  await until(
+    async () =>
+      (await engine.messages(chat.id)).at(-1)?.text ===
+        "Recovered committed input" && leases === 0,
+  );
+  const receipt = await engine.submit(
+    chat.id,
+    "Stable recovery",
+    "recover-stable-id",
+  );
+  expect((await receipt.wait(engine.context)).status).toBe("done");
+  expect(faux.state.callCount).toBe(2);
+});
+
+it("keeps recovered conversations protected when a new submit starts the scheduler", async () => {
+  const { ExecutionOwner } = await import("../src/runtime/execution-owner");
+  const dir = await mkdtemp(join(tmpdir(), "moose-background-admission-"));
+  cleanup.push(() => rm(dir, { recursive: true, force: true }));
+  const { faux, models, settings } = fixture();
+  let finishOld!: () => void;
+  const interrupted = (
+    _context: unknown,
+    options: { signal?: AbortSignal } | undefined,
+  ) =>
+    new Promise<ReturnType<typeof fauxAssistantMessage>>((resolve) => {
+      const abort = () =>
+        resolve(fauxAssistantMessage("", { stopReason: "aborted" }));
+      options?.signal?.addEventListener("abort", abort, { once: true });
+      if (options?.signal?.aborted) abort();
+    });
+  const respond = (
+    context: unknown,
+    options: { signal?: AbortSignal } | undefined,
+  ) => {
+    if (!JSON.stringify(context).includes("Old persisted work"))
+      return fauxAssistantMessage("New answer");
+    return new Promise<ReturnType<typeof fauxAssistantMessage>>((resolve) => {
+      finishOld = () => resolve(fauxAssistantMessage("Old answer"));
+      const abort = () =>
+        resolve(fauxAssistantMessage("", { stopReason: "aborted" }));
+      options?.signal?.addEventListener("abort", abort, { once: true });
+      if (options?.signal?.aborted) abort();
+    });
+  };
+  faux.setResponses([interrupted, respond, respond]);
+  const path = join(dir, "db.sqlite");
+  let engine = await MobileEngine.open(database(path), models, settings);
+  const old = await engine.newConversation();
+  await engine.submit(old.id, "Old persisted work", "old-persisted");
+  await until(async () => faux.state.callCount === 1);
+  await engine.close();
+  let service = false;
+  const owner = new ExecutionOwner(
+    {
+      start: async () => {
+        service = true;
+      },
+      stop: async () => {
+        service = false;
+      },
+    },
+    () => engine.stopAll(),
+  );
+  engine = await MobileEngine.open(
+    database(path),
+    models,
+    settings,
+    Date.now,
+    undefined,
+    undefined,
+    {},
+    () => owner.acquire(),
+  );
+  cleanup.push(() => engine.close());
+  const fresh = await engine.newConversation();
+  const receipt = await engine.submit(fresh.id, "New work", "new-work");
+  expect((await receipt.wait(engine.context)).status).toBe("done");
+  // Let receipt cleanup and native shutdown settle while the old run is still pending.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(service).toBe(true);
+  finishOld();
+  await until(
+    async () =>
+      (await engine.messages(old.id)).at(-1)?.text === "Old answer" && !service,
+  );
+  expect(faux.state.callCount).toBe(3);
 });

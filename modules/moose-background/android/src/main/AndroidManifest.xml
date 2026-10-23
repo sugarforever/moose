@@ -1,0 +1,13 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <uses-permission android:name="android.permission.WAKE_LOCK" />
+  <application>
+    <service android:name="dev.verysmallwoods.background.MooseExecutionService"
+      android:exported="false" android:foregroundServiceType="specialUse" android:stopWithTask="false">
+      <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+        android:value="Continue user-initiated finite AI conversations: consume streaming responses, execute local tools and commit SQLite while the Activity is hidden. One shared service, visible stop action, maximum 30 minutes; no scheduled wakeup or automatic restart." />
+    </service>
+  </application>
+</manifest>

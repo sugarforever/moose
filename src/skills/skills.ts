@@ -1,3 +1,4 @@
+import { loadFolder, fileText, type SkillFile } from "./bundle";
 export interface Skill {
   id: string;
   name: string;
@@ -5,6 +6,8 @@ export interface Skill {
   instructions: string;
   source: string;
   installedAt: number;
+  files?: SkillFile[];
+  revision?: string;
 }
 const MAX_BYTES = 128 * 1024;
 
@@ -29,12 +32,26 @@ export function skillSourceUrl(input: string): string {
   return url.toString();
 }
 
-/** Download only a single bounded Markdown file. Linked scripts are never fetched. */
+/** Folder imports are pinned snapshots; direct Markdown imports stay single-file. */
 export async function loadSkill(
   input: string,
   fetcher: typeof fetch = fetch,
 ): Promise<Skill> {
-  const source = skillSourceUrl(input);
+  const id = skillSourceUrl(input);
+  const folder = await loadFolder(input, fetcher);
+  const source = folder?.source ?? id;
+  if (folder) {
+    const instructions = fileText(
+      folder.files.find((f) => f.path === "SKILL.md")!,
+    );
+    if (instructions === undefined)
+      throw new Error("SKILL.md must be UTF-8 text");
+    const skill = await loadSkill(
+      source,
+      async () => new Response(instructions),
+    );
+    return { ...skill, ...folder, id };
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15000);
   try {
@@ -125,17 +142,14 @@ export function selectedSkillPrompt(
   selected: string[],
 ): string {
   const enabled = skills.filter((skill) => selected.includes(skill.id));
-  const total = enabled.reduce(
-    (sum, skill) => sum + skill.instructions.length,
-    0,
-  );
-  if (total > 65536)
-    throw new Error("Selected skills exceed the 64 KiB prompt limit");
-  return [
+  const prompt = [
     mobilePreamble,
     ...enabled.map(
       (skill) =>
-        `\n<skill name=${JSON.stringify(skill.name)}>\n${skill.instructions}\n</skill>`,
+        `\n<skill name=${JSON.stringify(skill.name)} id=${JSON.stringify(skill.id)}>\n${skill.instructions}${skill.files ? `\nInstalled files: ${skill.files.map((f) => f.path).join(", ")}. Read text with skill_resource_read. To use scripts or binary assets, call skill_workspace with this skillId for a workspace copy; use its returned relative directory. Commands require bash and installed dependencies. Installation does not execute scripts.` : ""}\n</skill>`,
     ),
   ].join("\n");
+  if (new TextEncoder().encode(prompt).length > 65536)
+    throw new Error("Selected skills exceed the 64 KiB prompt limit");
+  return prompt;
 }

@@ -4,6 +4,11 @@ dist/
 coverage/
 /ios/
 /android/
+modules/**/build/
+modules/**/.cxx/
+vendor/**/build/
+vendor/**/.cxx/
+vendor/**/.gradle/
 .env*
 *.sqlite*
 src/generated/

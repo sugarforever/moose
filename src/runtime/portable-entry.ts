@@ -12,3 +12,8 @@ export { PermissionStore } from "../capabilities/permissions";
 export { CapabilityService } from "../capabilities/service";
 
 export { createIshWorkspace } from "./ish";
+export {
+  executionStatus,
+  statusLabel,
+  executionDetails,
+} from "./execution-diagnostics";

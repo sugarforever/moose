@@ -1,79 +1,79 @@
-# Moose Android Termux 手机配置手册
+# Moose Android Termux Phone Setup Guide
 
-本手册对应 PR #8 的自动配置版本。必须安装包含 `MooseTermux` 原生模块的新 APK，旧 APK 不能通过刷新 JavaScript 获得该能力。Android 实机验收仍待完成；以下是实现对应的操作步骤，不是已完成的设备测试记录。
+This guide covers the automatic setup version in PR #8. Install a new APK containing the `MooseTermux` native module; refreshing JavaScript cannot add it to an older APK. Android physical-device acceptance remains pending. These steps describe the implementation, not a completed device test record.
 
-## 一、你需要先准备什么
+## 1. Prerequisites
 
-- 一部 Android 手机，已安装并初始化 Termux。
-- 包含本次改动的 Moose APK。开发客户端需要重新编译，不能使用 Expo Go。
-- 可访问 Termux 软件仓库的网络。
-- 若要测试模型调用，在 Moose 中配置模型凭据。不要把 API Key 或 OAuth 令牌复制到 Termux。
+- An Android phone with Termux installed and initialized.
+- A Moose APK containing this change. Rebuild development clients; Expo Go is unsupported.
+- Network access to Termux package repositories.
+- To test model calls, configure model credentials in Moose. Do not copy API keys or OAuth tokens into Termux.
 
-无需电脑传文件，无需下载服务文件，无需在 Termux 手动安装 Node，无需复制配对公钥，也无需授予共享存储访问权限。
+No computer file transfer, service file download, manual Node installation in Termux, pairing public-key copying, or shared-storage permission is required.
 
-## 二、首次手动操作
+## 2. Initial manual steps
 
-1. **打开一次 Termux。** 等待首次初始化，直到出现可输入命令的提示符。
-2. **打开 Moose 的“设置”。** 找到“执行环境”。应能看到“打开 Termux”和“设置并连接 Termux”。如果提示缺少自动配置模块，请先安装新 APK，重新启动旧 APK 无法补上原生模块。
-3. **授予命令权限。** 点击“授权运行命令”，允许 Moose 在 Termux 中运行命令。若没有弹窗或被拒绝，点击“打开系统设置”，进入 Moose 的“权限”或“其他权限／附加权限”，开启在 Termux 中运行命令的权限。不同手机的系统名称可能不同。
-4. **复制一次性命令。** 回到 Moose，长按页面上显示的配置命令，选择复制。命令如下，可直接复制整行：
+1. **Open Termux once.** Wait for initialization until a command prompt appears.
+2. **Open Moose Settings.** Find “Execution environment.” It should offer “Open Termux” and “Set up and connect Termux.” If the automatic setup module is missing, install the new APK; restarting an older APK cannot add a native module.
+3. **Grant command permission.** Tap “Allow running commands” to allow Moose to run commands in Termux. If no prompt appears or permission was denied, tap “Open system settings,” open Moose's “Permissions” or “Other permissions / Additional permissions,” and enable permission to run commands in Termux. System labels vary by phone.
+4. **Copy the one-time command.** Return to Moose, long-press the displayed setup command, and copy it. You can copy this entire line:
 
 ```sh
 mkdir -p ~/.termux && printf '\nallow-external-apps = true\n' >> ~/.termux/termux.properties && termux-reload-settings
 ```
 
-5. **执行一次性命令。** 点击“打开 Termux”，长按终端粘贴命令，按回车。无报错且返回命令提示符后，切回 Moose。该命令只创建配置目录并追加允许外部应用调用的设置，不下载服务、不写入模型凭据。
-6. **开始自动配置。** 点击“设置并连接 Termux”。保持 Moose 在前台，等待“检查 Termux 和服务版本”“安装依赖并部署服务，请稍候”“连接 Termux 服务”等状态。已有兼容服务时会跳过安装。首次安装需从 Termux 仓库下载 Node 或锁工具，可能需要几分钟。
-7. **确认成功。** 显示“已连接 Termux。”且当前环境显示“Termux”后即可使用，不需要完全关闭或重启 Moose。若失败，先按下文检查，再点击同一按钮重试。
+5. **Run the one-time command.** Tap “Open Termux,” long-press the terminal to paste, and press Enter. Once the prompt returns without errors, switch back to Moose. The command only creates the configuration directory and appends the setting allowing external app calls; it downloads no service and writes no model credentials.
+6. **Start automatic setup.** Tap “Set up and connect Termux.” Keep Moose in the foreground while it shows states such as “Checking Termux and service versions,” “Installing dependencies and deploying service, please wait,” and “Connecting to Termux service.” Installation is skipped if a compatible service exists. First installation may take a few minutes to download Node or locking tools from Termux repositories.
+7. **Confirm success.** Once “Connected to Termux.” appears and the current environment reads “Termux,” it is ready without closing or restarting Moose. If it fails, check the guidance below and retry with the same button.
 
-系统的 RUN_COMMAND 权限和 Termux 的 `allow-external-apps` 是两道独立授权，缺少任何一项都无法自动部署。[Termux 官方设置要求](https://github.com/termux/termux-app/wiki/RUN_COMMAND-Intent#setup-instructions)
+The system RUN_COMMAND permission and Termux's `allow-external-apps` setting are separate authorizations. Automatic deployment requires both. [Official Termux setup requirements](https://github.com/termux/termux-app/wiki/RUN_COMMAND-Intent#setup-instructions)
 
-## 三、测试是否可用
+## 3. Test functionality
 
-先新建一个对话，再分别测试：
+Create a new conversation and test each of these:
 
-1. 发送：“在当前工作区写入 hello.txt，内容为 hello，再用 bash 执行 cat hello.txt。”确认回答包含真实读取结果。
-2. 发送：“用 bash 把 hello.txt 改为 hello termux，再通过 read 读取。”确认文件工具和 Shell 看到同一内容。
-3. 发送：“用 bash 执行 sleep 30，然后输出 finished。”执行期间点击 Moose 的停止按钮，确认回答停止，后续请求仍可正常使用。
-4. 切换到另一个新对话，请求读取 hello.txt，确认新对话没有该文件。
+1. Send: “Write hello to hello.txt in the current workspace, then use bash to run cat hello.txt.” Confirm the answer includes the actual read result.
+2. Send: “Use bash to change hello.txt to hello termux, then read it with read.” Confirm file tools and the shell see the same content.
+3. Send: “Use bash to run sleep 30, then output finished.” Tap Moose's stop button during execution. Confirm the response stops and subsequent requests still work.
+4. Switch to another new conversation and request hello.txt. Confirm that the new conversation does not contain the file.
 
-这些测试会使用当前模型，可能产生模型费用。模型只声称成功并不足以证明执行成功，检查对应工具结果；发生错误时保留报错文字，不要反复执行可能产生外部副作用的命令。
+These tests use the current model and may incur model charges. A model's claim of success is insufficient evidence; inspect the corresponding tool results. Preserve error text when failures occur, and avoid repeatedly running commands that may have external side effects.
 
-## 四、日常操作
+## 4. Everyday operations
 
-- **重新连接：** 手机重启或 Termux 服务退出后，打开 Moose →“设置”→“检查或修复连接”。
-- **切回本地文件：** 点击“使用本地文件”，等待显示已切换。无需重启，Termux 文件不会自动复制过来。
-- **切换被阻止：** 等待所有对话完成，处理待提交请求，并停止任务页上仍活动的重复任务后重试。不会为了切换而自动终止它们。
-- **取消安装等待：** 点击“取消设置”。临时传输和等待会停止，已安装的依赖不会卸载，已完成下载的安装进程仍可能继续。之后可重新检查或修复连接。
-- **后台运行：** 不保证锁屏后继续执行。遇到系统省电限制，可自行在 Android 设置中调整 Termux 和 Moose 的电池策略；这仍不保证常驻。
+- **Reconnect:** With Termux selected, Moose checks and attempts repair on foreground return and before new responses or recurring iterations. Automatic checks have a 30-second budget, including queue wait. If repair fails, open Moose → Settings → “Check or repair connection.” Missing permission, incompatible service versions, and unknown command outcomes still require attention. Failed tools are never automatically replayed.
+- **Return to local files:** Tap “Use local files” and wait for confirmation. No restart is needed; Termux files are not copied automatically.
+- **Switch blocked:** Wait for all conversations to finish, resolve pending submissions, and stop active recurring tasks on the Tasks page, then retry. Switching does not automatically terminate them.
+- **Cancel setup waiting:** Tap “Cancel setup.” Temporary transfers and waits stop, but installed dependencies remain and installation processes whose downloads finished may continue. You can check or repair the connection later.
+- **Background execution:** Continued execution after locking the screen is not guaranteed. You may adjust Termux and Moose battery policies in Android settings if power restrictions interfere; this still does not guarantee persistent execution.
 
-## 五、常见错误
+## 5. Common errors
 
-| 现象                         | 手动处理                                                                                                                              |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| 找不到 Termux                | 安装并打开一次 Termux，再回到 Moose                                                                                                   |
-| 缺少自动配置原生模块         | 安装此次 PR 对应的新 APK，不要只刷新页面                                                                                              |
-| RUN_COMMAND 权限失败         | 在 Moose 系统应用权限中允许在 Termux 运行命令                                                                                         |
-| 提示检查 allow-external-apps | 在 Termux 重新执行本手册的一次性配置命令，再重试                                                                                      |
-| Node 或锁工具安装失败        | 打开 Termux 检查联网和软件仓库；可执行 `pkg update` 排查仓库提示，处理后返回 Moose 重试                                               |
-| 服务版本不兼容或配对不匹配   | 如果此前按旧手册手动运行过 `node ...service.mjs`，到那个 Termux 会话按 Ctrl+C 停止旧 Moose 服务，再重试；不要随意杀其他进程或删除数据 |
-| 未确认的命令结果             | 先检查已产生的文件和外部操作，再按 [结果恢复说明](termux.md#recovery-and-limits) 处理，不要直接重复提交                               |
-| 服务停止后仍不能修复         | 保留完整错误文字。不要删除 `.requests` 回执、数据库或工作区来绕过错误                                                                 |
+| Symptom                                          | Manual action                                                                                                                                                                                        |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Termux not found                                 | Install and open Termux once, then return to Moose                                                                                                                                                   |
+| Automatic setup native module missing            | Install the new APK for this PR; refreshing the screen is insufficient                                                                                                                               |
+| RUN_COMMAND permission failure                   | Allow running commands in Termux in Moose's system app permissions                                                                                                                                   |
+| Prompt to check allow-external-apps              | Rerun this guide's one-time configuration command in Termux, then retry                                                                                                                              |
+| Node or locking tool installation fails          | Open Termux and check connectivity and package repositories; run `pkg update` to inspect repository messages, resolve them, and retry in Moose                                                       |
+| Incompatible service version or pairing mismatch | If you manually ran `node ...service.mjs` using the old guide, press Ctrl+C in that Termux session to stop the old Moose service, then retry; do not arbitrarily kill other processes or delete data |
+| Unconfirmed command result                       | Inspect files and external operations already produced, then follow [Recovery guidance](termux.md#recovery-and-limits); do not resubmit immediately                                                  |
+| Repair still fails after the service stops       | Preserve the full error text. Do not delete `.requests` receipts, databases, or workspaces to bypass the error                                                                                       |
 
-## 六、Moose 自动完成的事情
+## 6. What Moose does automatically
 
-Moose 检查安装和权限状态，通过 Termux 官方 RUN_COMMAND 接口运行固定安装器，按需安装 Node 和 `flock` 锁工具。服务代码来自当前 APK，通过临时 loopback 端口传输并核对 SHA-256，然后部署到 Termux 私有目录、用公钥配对并启动。连接会核对运行服务的版本及签名请求，再切换运行时；切换失败会尝试恢复原环境。
+Moose checks installation and permission state, runs a fixed installer through Termux's official RUN_COMMAND interface, and installs Node and the `flock` locking tool as needed. Service code comes from the current APK, is transferred through a temporary loopback port and checked against SHA-256, then deployed to Termux's private directory, paired with a public key, and started. Connection checks the running service version and signed requests before switching runtimes; if switching fails, it attempts to restore the previous environment.
 
-模型不能调用这个安装器，也拿不到 Moose 私密签名种子或模型凭据。Termux 只拿到配对公钥。文件和命令仍运行在 Termux 应用的权限范围内，不是安全容器。原生工具的逐域名授权不会约束 Shell。
+The model cannot invoke this installer or obtain Moose's private signing seed or model credentials. Termux receives only the pairing public key. Files and commands still run within the Termux app's permissions; this is not a security container. Native tools' per-domain authorization does not constrain the shell.
 
-## 验收记录
+## Acceptance record
 
-请记录新 APK 的版本、手机 Android 版本、Termux 版本，以及首次授权、自动安装、文件／Shell、停止操作、重启后修复、切回本地文件是否成功。这些实机结果与自动化协议测试、APK 编译结果分别记录，不相互替代。
+Record the new APK version, phone Android version, Termux version, and whether initial authorization, automatic installation, file/shell operations, stopping, repair after restart, and switching back to local files succeed. Record physical-device results separately from automated protocol tests and APK build results; they do not replace one another.
 
 ## v0.2.1 diagnostics
 
-执行环境显示当前选择，以及本次启动最近一次通信结果和时间。此信息不是持续健康监控。点击“运行自检（不调用模型）”，验证签名连接、临时文件读写和 bash；临时目录位于保留的诊断工作区，与聊天工作区分离，结束后尝试清理。连接中断时清理可能失败，重新连接后可再次自检，不会自动重放聊天工具。
+The execution environment shows the current selection and the latest communication result and time from this app launch. This is not continuous health monitoring; checks run on foreground return and before new runs. Tap “Run self-check (no model calls)” to verify the signed connection, temporary file read/write, and bash. Temporary files use a reserved diagnostic workspace separate from chat workspaces, with cleanup attempted afterward. Cleanup may fail if the connection drops; rerun the check after reconnecting. Chat tools are not automatically replayed.
 
-“查看诊断记录”只保留本次启动最近 40 条元数据，可长按选择复制。记录不含路径、命令、正文、签名或凭据。文件不存在不等于断连；请求超时、调用任务取消和来源未知的传输中断分别报告。诊断不根据通用 fetch 错误推断后台限制或用户停止。
+“View diagnostic records” retains only the latest 40 metadata entries from this launch, selectable by long-press for copying. Records contain no paths, commands, bodies, signatures, or credentials. A missing file does not imply disconnection; request timeout, task cancellation, and transport interruption of unknown origin are reported separately. Diagnostics do not infer background restrictions or user stops from generic fetch errors.
 
-实机验收：保持前台完成连接与自检，复制失败时的记录；然后分别切换前后台、锁屏再返回并重新自检，比较时间与错误类别。无需调用真实模型。无连接时使用“检查或修复连接”，或切回本地文件。
+Physical-device acceptance: connect and run the self-check in the foreground, copying records on failure. Then separately switch between foreground/background and lock/unlock the screen, rerun self-checks, and compare times and error categories. No real model calls are required. Without a connection, use “Check or repair connection” or switch to local files.

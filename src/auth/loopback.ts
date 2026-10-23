@@ -28,7 +28,8 @@ export async function startLoopback(
   },
 ): Promise<{ port: number; result: Promise<string>; close(): Promise<void> }> {
   const { signal, state } = options;
-  if (signal.aborted) throw new CodexAuthError("cancelled", "登录已取消");
+  if (signal.aborted)
+    throw new CodexAuthError("cancelled", "Sign-in cancelled");
   let resolveResult!: (url: string) => void;
   let rejectResult!: (error: Error) => void;
   const result = new Promise<string>((resolve, reject) => {
@@ -114,7 +115,7 @@ export async function startLoopback(
     if (closed) return closed;
     if (!settled) {
       settled = true;
-      rejectResult(new CodexAuthError("cancelled", "登录已取消"));
+      rejectResult(new CodexAuthError("cancelled", "Sign-in cancelled"));
     }
     clearTimeout(timer);
     signal.removeEventListener("abort", onAbort);
@@ -138,27 +139,34 @@ export async function startLoopback(
     if (!ready) rejectReady(error);
     void close();
   };
-  const onAbort = () => fail(new CodexAuthError("cancelled", "登录已取消"));
+  const onAbort = () =>
+    fail(new CodexAuthError("cancelled", "Sign-in cancelled"));
   const listening = new Promise<void>((resolve, reject) => {
     rejectReady = reject;
     server.on("error", () =>
       fail(
         new CodexAuthError(
           "unavailable",
-          "无法监听本地 1455 端口，请重试或使用设备码登录",
+          "Unable to listen on local port 1455. Try again or use device code sign-in.",
         ),
       ),
     );
     signal.addEventListener("abort", onAbort, { once: true });
     timer = setTimeout(
-      () => fail(new CodexAuthError("expired", "浏览器登录已超时，请重试")),
+      () =>
+        fail(
+          new CodexAuthError(
+            "expired",
+            "Browser sign-in timed out. Try again.",
+          ),
+        ),
       options.timeoutMs ?? 300000,
     );
     try {
       server.listen({ port: options.port ?? 1455, host: "127.0.0.1" }, () => {
         ready = true;
         if (signal.aborted || settled) {
-          reject(new CodexAuthError("cancelled", "登录已取消"));
+          reject(new CodexAuthError("cancelled", "Sign-in cancelled"));
           // Native close-before-ready cannot cancel an in-flight bind.
           // Retry the actual close now, even if earlier cleanup already resolved.
           closed = undefined;
@@ -171,7 +179,7 @@ export async function startLoopback(
       fail(
         new CodexAuthError(
           "unavailable",
-          "本地回调服务不可用，请重新编译原生客户端或使用设备码登录",
+          "Local callback service is unavailable. Rebuild the native client or use device code sign-in.",
         ),
       );
     }

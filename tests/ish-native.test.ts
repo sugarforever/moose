@@ -246,7 +246,7 @@ describe.skipIf(!core)("Pi adapter on actual embedded iSH", () => {
     const chat = await engine.newConversation("iSH");
     expect(
       (await chat.agent(engine.context)).tools.map((t) => t.name).sort(),
-    ).toEqual(["bash", "edit", "read", "write"]);
+    ).toEqual(["bash", "edit", "read", "skill_workspace", "write"]);
     const receipt = await (
       await engine.submit(chat.id, "Write and run a guest command", "ish-test")
     ).wait(engine.context);

@@ -1,6 +1,6 @@
 # Moose
 
-Moose v0.2.1 is an open source AI agent for iOS and Android powered by Pi Durable. Expo / React Native provides the interface, Pi Durable runs on the phone's Hermes runtime, and SQLite stores conversations and tasks. Model requests go directly to the provider; no Moose backend is required.
+Moose v0.7.0 is an open source AI agent for iOS and Android powered by Pi Durable. Expo / React Native provides the interface, Pi Durable runs on the phone's Hermes runtime, and SQLite stores conversations and tasks. Model requests go directly to the provider; no Moose backend is required.
 
 ## Features
 
@@ -12,7 +12,7 @@ Moose v0.2.1 is an open source AI agent for iOS and Android powered by Pi Durabl
 - Optional experimental embedded iSH file and POSIX shell execution on iOS; see [iOS setup](#ios-ish-installation-and-setup-experimental).
 - Optional experimental Termux file and command execution on Android, with in-app setup and connection. Native Termux device validation is still pending; see [setup and limitations](docs/termux.md).
 - OpenAI / Anthropic API keys and experimental ChatGPT / Codex subscription sign-in.
-- Compact conversations, native message action menus, and keyboard avoidance.
+- Compact conversations, native message action menus, keyboard avoidance, and phone rotation between portrait and landscape. Assistant replies render Markdown headings, lists, quotes, code blocks, links, and horizontally scrollable tables.
 
 ## Local development
 
@@ -31,6 +31,8 @@ npm run android -- --device
 
 The first run builds and installs a native development client. **Expo Go is not supported**, because browser subscription sign-in depends on a custom native TCP module.
 
+Orientation is native configuration. Existing development clients need `npx expo prebuild`, followed by `npm run ios` or `npm run android` to rebuild and reinstall. Fast Refresh or a JavaScript update alone cannot unlock an older portrait-only client. Rotation follows the device's system orientation lock.
+
 After installing the development client, start the development server with:
 
 ```sh
@@ -45,9 +47,15 @@ If an Android device connected over USB cannot reach the development server, run
 
 `.github/workflows/build.yml` runs when a `v*` tag is pushed or when **Run workflow** is selected manually. On a GitHub Ubuntu runner, it installs locked dependencies, generates the Pi runtime bundle, runs tests and type checks, then builds an APK with Expo Prebuild and Gradle `assembleRelease`. It does not use EAS cloud builds or require repository secrets.
 
-After a successful build, download `moose-android-test-<run-number>` from the run's **Artifacts** section, extract it, and install the APK. The package includes JavaScript / Hermes assets and starts without Metro or a development computer. Model requests still require network access and your own credentials. Artifacts are retained for 14 days. Successful version-tag builds automatically create a GitHub prerelease with the APK and `service.mjs`; manual builds only upload workflow artifacts.
+After a successful build, download `moose-android-test-<run-number>` from the run's **Artifacts** section, extract it, and install the APK. The package includes JavaScript / Hermes assets and starts without Metro or a development computer. Model requests still require network access and your own credentials. Artifacts are retained for 14 days. Successful version-tag builds automatically create a regular GitHub release with the APK, `moose-update.json`, and `service.mjs`; manual builds only upload workflow artifacts.
 
 The APK uses the generated Expo project's default test signing key and is intended for testing. Public distribution requires a separate long-term signing key. Changing signing keys may require uninstalling the old test build, which deletes local conversations and files. The iOS job is explicitly skipped with `if: false`; it does not build an IPA or upload to TestFlight.
+
+## Android in-app updates
+
+Android builds with the updater check GitHub Releases on startup and when returning to the foreground, with at least six hours between automatic checks. In Settings, **App updates** supports manual checks, release notes, downloads, and cancellation. The app verifies the APK's SHA-256, package name, signing certificate, and build number before opening Android's installation confirmation. You may need to allow Moose to install apps. Installation and restart are never automatic.
+
+Update releases require an APK and the matching `moose-update.json`. The tag workflow publishes both, using the tag for the version name and the workflow run number for Android `versionCode`. Existing users must manually install one build containing the updater. Test signing is retained; production signing migration is out of scope. iOS does not display this entry, and TestFlight and OTA are not integrated. See [Android updates](docs/android-updates.md) for the design and verification limits.
 
 ## Connect a model
 
@@ -62,7 +70,7 @@ OpenAI and Anthropic each require their own API key. API usage is billed separat
 Selecting ChatGPT provides two sign-in methods:
 
 - **Sign in to ChatGPT**: Complete sign-in in the official browser page. The app temporarily listens on `127.0.0.1:1455` for the OAuth callback, validates PKCE and state, and exchanges the authorization code for tokens.
-- **Device code sign-in**: Obtain a device code, open the [official authorization page](https://auth.openai.com/codex/device) in a phone or desktop browser, sign in, and enter the code. Your account or workspace must permit device authorization.
+- **Sign in with device code**: Obtain a device code, open the [official authorization page](https://auth.openai.com/codex/device) in a phone or desktop browser, sign in, and enter the code. Your account or workspace must permit device authorization.
 
 Save the ChatGPT connection after authorization. Tokens are stored through SecureStore and refreshed automatically. You can cancel sign-in or sign out. Inference uses a separate Codex SSE channel; failures do not automatically switch to API-key billing. Account eligibility, quotas, and model access are determined by the provider.
 
@@ -74,11 +82,15 @@ Automated tests use controlled responses, without signing into real accounts or 
 
 Recurring tasks run immediately for the first iteration, with an interval of at least one minute and a total of 2–100 iterations. Requests receive a stable ID before submission. Unconfirmed submissions can retry the same ID to avoid duplicate queue entries. Stopping a recurring task stops future scheduling; an already submitted response must be stopped separately in the conversation.
 
-**Tasks primarily run in the foreground. Execution at an exact time is not guaranteed while the screen is locked or the app is suspended.** Reopening resumes from committed state. An overdue recurring task runs once before calculating its next interval, rather than replaying every missed iteration. This version has no remote execution host, cross-device synchronization, or persistent background service.
+Android protects user-initiated finite runs with a bounded foreground service; see [Android foreground execution](#android-foreground-execution). iOS may pause when suspended. Exact recurring execution times are not guaranteed. Reopening recovers committed state, and an overdue recurring task runs once before calculating its next interval. This version has no remote execution host or cross-device synchronization.
 
 Restoring a checkpoint creates a new branch from the corresponding historical message and preserves the original conversation.
 
-Skills support direct SKILL.md links and GitHub file, directory, or repository-root URLs. Installation downloads a Markdown file of at most 128 KiB. Skills are disabled by default. Enabling a skill adds its instructions to the current conversation. The model can read relative text reference files through the resource tool; the first network access requires authorization, and downloads are cached. Scripts are not executed. GitHub directory links must use a single-segment branch name or a commit SHA.
+Skills support direct SKILL.md links and GitHub file, directory, or repository-root URLs. GitHub folders install a complete snapshot pinned to one commit: instructions, scripts, references, and binary assets, preserving relative paths. Limits are 128 files, 512 KiB per file (SKILL.md: 128 KiB), and 4 MiB total. Symlinks and submodules are rejected. GitHub folder refs must be a single-segment branch name or commit SHA. Direct SKILL.md links keep single-file imports.
+
+The Skills screen includes downloadable presets for [DuckDuckGo Search](https://github.com/NousResearch/hermes-agent/blob/main/optional-skills/research/duckduckgo-search/SKILL.md), [Grilling](https://github.com/mattpocock/skills/tree/main/skills/productivity/grilling), and [FPL Copilot](https://github.com/sugarforever/01coder-agent-skills/tree/main/skills/fpl-copilot). Tap **Install**, then enable the Skill for the current conversation. Presets use the existing URL installer and are not preinstalled. DuckDuckGo imports its self-contained SKILL.md; Grilling and FPL Copilot import their folders. DuckDuckGo requires Python and `ddgs` in Termux. Installation does not provision these dependencies.
+
+Skills are disabled by default. Enable one for the current conversation; only its instructions enter the initial context. **View files** shows its installed file list, sizes, commit, and selectable text previews; binary files show their size. The model can read installed text offline with `skill_resource_read` or copy the complete bundle into a fresh conversation-workspace directory with `skill_workspace`. Bash can run scripts from that directory when Termux is selected and required interpreters/dependencies are installed. Installation never runs scripts or installs dependencies. Local mode supports files but cannot run commands. Uninstall disables the Skill and removes its installed bundle; workspace copies remain conversation files. Legacy single-file imports retain authorized, cached remote text reads. See [Skill folders](docs/skill-folders.md).
 
 ## Conversation file workspaces
 
@@ -91,6 +103,8 @@ Individual files are limited to 8 MiB. The default environment supports reading,
 The file environment uses the published npm package `pi-durable-expo-env@0.1.0`, with its version and integrity pinned in the lockfile. It does not depend on sibling source directories or local package archives. See [file environment integration](docs/mobile-files.md) for update steps, the controlled native test entry point, and validation records.
 
 ## iOS iSH installation and setup (experimental)
+
+See the [step-by-step iOS iSH setup guide](docs/ios-ish-setup-guide.md) for first-time setup, controlled tests, everyday operations, troubleshooting and a device acceptance checklist.
 
 The default iOS app needs only a model connection in **Settings**. To enable local shell execution, a developer must build a native client containing the embedded iSH core and enable it in the JavaScript bundle. There is currently no iOS execution-environment switch in Settings and no prebuilt IPA / TestFlight release from this repository.
 
@@ -165,7 +179,7 @@ First-time setup still requires these steps:
 
 1. Install a new Moose APK containing the native setup module. Older APKs and Expo Go do not include it; developers must rebuild the native client.
 2. Install and open Termux once. Wait for initialization to finish and a command prompt to appear.
-3. Open Moose → **Settings** → **Execution environment**, tap **Authorize command execution**, and allow commands to run in Termux. If no system prompt appears, or you previously denied permission, tap **Open system settings** and allow it under Moose's app permissions / other permissions.
+3. Open Moose → **Settings** → **Execution environment**, tap **Allow command execution**, and allow commands to run in Termux. If no system prompt appears, or you previously denied permission, tap **Open system settings** and allow it under Moose's app permissions / other permissions.
 4. On the same page, long-press to copy the one-time configuration command, tap **Open Termux**, paste and run it, then return to Moose. The complete command is:
 
 ```sh
@@ -173,11 +187,11 @@ mkdir -p ~/.termux && printf '\nallow-external-apps = true\n' >> ~/.termux/termu
 ```
 
 5. Tap **Set up and connect Termux**. Keep Moose in the foreground with network access until checks, installation, and connection finish. The initial Termux package download may take several minutes. On success, Moose shows that Termux is connected and switches the current environment to Termux without restarting.
-6. Tap **运行自检（不调用模型）** (run self-test without a model). It checks signed communication, temporary file writes/reads, and bash in a reserved diagnostic workspace, then removes its temporary directory. It does not use model credentials or change conversation files. A passing self-test checks this execution path at that time; it does not guarantee background availability.
+6. Tap **Run self-test (no model)**. It checks signed communication, temporary file writes/reads, and bash in a reserved diagnostic workspace, then removes its temporary directory. It does not use model credentials or change conversation files. A passing self-test checks this execution path at that time; it does not guarantee background availability.
 
-The selected environment is separate from the most recent communication result and timestamp. **查看诊断记录** shows up to 40 session-only metadata records that can be selected and copied; restarting Moose clears them. Records contain operation, local correlation number, result, time and duration, without paths, commands, content or credentials. A file-not-found response means the service responded; it is not a connection failure. Timeouts, calling-task cancellation and transport interruption are reported separately; an unexplained native cancellation is not attributed to the user or Android without evidence.
+The selected environment is separate from the most recent communication result and timestamp. **View diagnostics** shows up to 40 session-only metadata records that can be selected and copied; restarting Moose clears them. Records contain operation, local correlation number, result, time and duration, without paths, commands, content or credentials. A file-not-found response means the service responded; it is not a connection failure. Timeouts, calling-task cancellation and transport interruption are reported separately; an unexplained native cancellation is not attributed to the user or Android without evidence.
 
-After restarting the phone or after Android terminates Termux, tap **Check or repair connection** in Moose Settings. Use **Use local files** to return to the local environment. Finish or stop active responses, pending submissions, and recurring tasks before switching. Switching does not migrate files or delete native databases or historical reports.
+When Termux is selected, Moose checks its signed connection on foreground return and before starting a response or recurring iteration. If the service is unavailable, it attempts repair for up to 30 seconds, including time waiting behind setup. Failed checks prevent new responses from starting; use **Check or repair connection** in Settings for installation, missing permissions, incompatible services, or longer repairs. Recovery keeps the current runtime and never replays failed chat tools or acknowledges unknown command outcomes. Use **Use local files** to return to the local environment. Finish or stop active responses, pending submissions, and recurring tasks before switching. Switching does not migrate files or delete native databases or historical reports.
 
 The service listens only on the phone's `127.0.0.1:18765`. The temporary installation port also listens only on loopback. It transfers code bundled in the APK and verifies SHA-256, without shared-storage permission. Moose's private signing seed and model credentials are never passed to Termux. Android may suspend or terminate background processes, so continuous execution with the screen locked is not guaranteed.
 
@@ -212,12 +226,12 @@ npm run verify
 npx expo-doctor
 ```
 
-`verify` covers runtime bundle generation, 140 unit and integration tests, 3 real installer-script tests, TypeScript checks, the Pi Durable / SQLite / simulated Codex path without Node globals, and Android and iOS Hermes release asset exports.
+`verify` covers runtime bundle generation, unit and integration tests, 3 real installer-script tests, TypeScript checks, the Pi Durable / SQLite / simulated Codex path without Node globals, and Android and iOS Hermes release asset exports.
 
 Current validation coverage:
 
 - iOS: Native debug build, installation, and operation on an iPhone 17 Pro simulator. Checks covered chat layout, message menus, keyboard avoidance, skill downloads and persistence, and local authentication callback listening and cancellation cleanup.
-- Android: Release assets exported successfully. [GitHub Actions successfully compiled a test APK](https://github.com/sugarforever/moose/actions/runs/39503789329) containing the native Termux setup module. Phone installation, permission grants, and real Termux operations have not yet been validated.
+- Android: Debug APK compilation, installation on an Android 35 emulator, and controlled foreground-service SSE / local file-tool / next-round execution with SQLite commits, Activity destruction/recreation, notification stopping, and force-stop persistence passed. Physical-device Doze, vendor power policies, the full 30-minute timeout, and real Termux operations remain unverified. Release assets exported successfully. [GitHub Actions successfully compiled a test APK](https://github.com/sugarforever/moose/actions/runs/39503789329) containing the native Termux setup module. Phone installation, permission grants, and real Termux operations have not yet been validated.
 - Expo Doctor: 19 of 20 checks passed. The remaining check concerns new-architecture metadata for the TCP library and missing public-directory metadata for the local Termux and iSH modules; this is not a fully passing result.
 - File environment: The local package completed real file reads, writes, edits, SQLite reopening, and workspace isolation checks on the iOS simulator using controlled OpenAI SSE responses, without real credentials or billable requests.
 
@@ -245,3 +259,19 @@ tests/                     Protocol, storage, task, and recovery tests
 Pi Durable / AI / Chord are pinned to 1.3.0. Portable entry points are prebundled with esbuild, excluding Node credential autodiscovery and OAuth callback servers. Platform capabilities are injected explicitly. Generated `src/generated/`, `ios/`, `android/`, and `dist/` directories are not committed and are regenerated during builds and validation.
 
 See [AGENTS.md](AGENTS.md) for development constraints and [chat layout notes](docs/chat-layout.md) for interface design. Brand icon sources and licenses are documented in [assets/brands](assets/brands/README.md).
+
+## Android foreground execution
+
+On Android, a user-initiated answer or finite task establishes a shared foreground service and notification before model work begins. The existing Hermes runtime and Pi Harness continue the same SSE, local tools and SQLite commits when the Activity is hidden. Returning to the app does not resubmit, reopen the Harness or resume it again. Notification permission is required; a denied permission or failed service handshake prevents model execution.
+
+Automatic compaction runs as part of the active answer rather than as speculative background work. All active conversations share the service. The last run releases it; each continuous service generation has a 30-minute execution budget and a bounded partial wake lock. The notification's Stop action cancels all answers and recurring tasks, including future iterations. If JavaScript cannot acknowledge cancellation within 10 seconds, the native service terminates this process; a persistent cancellation marker is processed before recovery on the next manual launch. A missing startup handshake triggers cancellation after 15 seconds.
+
+Recurring tasks do not hold the service while waiting. An iteration due while the app is hidden waits until Moose is visible unless another active run already holds the service. There is no scheduled background wakeup, boot receiver or automatic service restart. A tool requiring new permission stores the pending permission scope and prompts the user to open Moose; it never grants permission automatically. Termux is a separate app and is not kept alive by Moose's service. Switching execution environments is blocked while any conversation, repeat, pending request or foreground admission is active.
+
+Chat shows the current task separately from historical reply attempts: running, retrying, waiting for network or authorization, completed, failed or stopped. Tap the task status or an attempt's Details for bounded, credential-redacted errors, stage, time and retry count. Native notification stop, budget expiry, startup timeout, permission loss, runtime destruction and service destruction keep distinct cancellation reasons. These diagnostics are persisted with the conversation (latest 200 events); they are separate from session-only Termux transport diagnostics.
+
+Transient model failures use Pi's durable retry checkpoint, with at most three generation retries and exponential 2/4/8-second backoff. Reopening projects committed messages and tool results and reconciles already-settled outbox items; it does not resubmit a task on foreground return. A failed attempt that later recovered is labelled as history. Network waiting is inferred from a transport error with a scheduled retry, rather than a claim that connectivity has been measured. Authentication and quota errors are not retried automatically. An operation whose effects are unknown blocks further mutations across restart and context compaction; inspect its effects before choosing **Review interrupted operation → Allow further changes**. That action does not rerun the command. See [background recovery design and validation](docs/background-recovery.md).
+
+System reclamation, Doze, network loss and vendor power policies can still interrupt execution. Process death cannot preserve the original TCP connection or Promise, and recovery cannot guarantee a model is billed only once. Force-stop is respected. iOS retains its existing suspension behavior. The Android `specialUse` declaration describes finite AI work; this does not imply Google Play approval.
+
+For a controlled native probe, rebuild the Android development client and run `EXPO_PUBLIC_MOOSE_BACKGROUND_SMOKE=1 npx expo start --dev-client`. Tap Run background probe, confirm the service starts, then press Home. After 15 seconds the probe should finish its file tool and second model round, commit SQLite and release its notification. The probe uses a separate database and controlled SSE, never real credentials or paid requests. Notification stopping can be checked during the delay. The same probe has a five/ten-minute lock test and a durable-results reader. For actual native network transport, start `node scripts/background-probe-server.mjs` on the development machine, then use **Run network probe** in the Android emulator; it connects only to the controlled local endpoint through `10.0.2.2:8106`. No request is forwarded to a model service.

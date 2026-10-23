@@ -6,6 +6,8 @@ Moose can opt into a real local iSH-backed Pi Durable `ExecutionEnv` on iOS. The
 
 ## Build and enable
 
+For step-by-step installation, troubleshooting and acceptance recording, use the [iOS iSH setup guide](ios-ish-setup-guide.md).
+
 Requires Apple Silicon macOS, Xcode with an installed iOS simulator runtime, Python 3, Meson, Ninja, Clang/LLVM **and LLD**, libarchive, pkg-config and git. Scripts do not install dependencies. LLD is a separate Homebrew package.
 
 ```sh
@@ -91,3 +93,9 @@ Fresh-seed verification during the merge exposed a missing `/dev` directory. The
 The merge validation passed 140 regular tests, three Termux installer tests, TypeScript, portable runtime smoke, both Hermes exports, the real signed Termux service smoke and 33 iSH adapter/boundary tests. Expo Doctor remains 19/20: TCP New Architecture metadata and missing directory metadata for the two private modules.
 
 The rebuilt Moose Debug client also passed the controlled write/edit/bash/read app smoke on iPhone 17 Pro / iOS 26.2 after the merge. Fresh-root core and production bridge UIKit suites passed with the rebuilt native library. No physical-device or real-model request was performed.
+
+## Main sync and setup guide, 2026-10-23
+
+Merged main `a8e0511` (v0.7.0), preserving its recovery, installed Skill folders and tool-activity summary. The standalone [iOS setup guide](ios-ish-setup-guide.md) follows the Android Termux guide's structure while documenting embedded execution, build flags and the absence of a separate service or connection UI. The iSH Harness test now includes main's advertised `skill_workspace` tool.
+
+Fresh merge checks passed: 237 regular tests (37 optional/skipped), three installer-script tests, TypeScript, portable smoke, both Hermes exports, standalone signed Termux service smoke, host iSH core/production bridge tests and 33 adapter/boundary tests. Expo Doctor reported 20/20 under the current project configuration. The rebuilt Debug app passed the controlled SSE/file/bash/persistence smoke on iPhone 17 Pro / iOS 26.2. No physical-device or real-model requests were performed; standalone UIKit lifecycle results above remain historical evidence from 2026-10-21.

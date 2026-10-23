@@ -37,17 +37,20 @@ export function CapabilityApproval({
             borderRadius: 16,
           }}
         >
-          <Text style={s.subheading}>允许访问？</Text>
+          <Text style={s.subheading}>Allow access?</Text>
           <Text style={s.caption}>
             {approval?.title} · {approval?.skillName}
           </Text>
           <Text style={{ color: colors.ink }}>
             {approval ? permissionLabel(approval.permission) : ""}
           </Text>
-          <Caption>授权仅在当前对话的所示范围内生效，可在设置中撤销。</Caption>
-          <Button label="允许" onPress={() => approval?.resolve(true)} />
+          <Caption>
+            Access applies only to the shown scope in this conversation. Revoke
+            it in Settings.
+          </Caption>
+          <Button label="Allow" onPress={() => approval?.resolve(true)} />
           <Button
-            label="拒绝"
+            label="Deny"
             secondary
             onPress={() => approval?.resolve(false)}
           />
@@ -78,9 +81,11 @@ export function Artifacts({
     >
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }}>
         <View style={[s.between, { padding: 16 }]}>
-          <Text style={s.subheading}>{selected?.title ?? "文件与报告"}</Text>
+          <Text style={s.subheading}>
+            {selected?.title ?? "Files and reports"}
+          </Text>
           <Button
-            label="关闭"
+            label="Close"
             secondary
             onPress={() => {
               setSelected(undefined);
@@ -92,12 +97,12 @@ export function Artifacts({
           <>
             <View style={{ paddingHorizontal: 16, paddingBottom: 12, gap: 8 }}>
               <Button
-                label="返回列表"
+                label="Back to list"
                 secondary
                 onPress={() => setSelected(undefined)}
               />
               <Button
-                label="分享或导出"
+                label="Share or export"
                 onPress={() => void moose.shareArtifact(selected)}
               />
             </View>
@@ -119,12 +124,14 @@ export function Artifacts({
               onOpenWindow={() => {}}
               dataDetectorTypes="none"
               allowsLinkPreview={false}
-              onError={() => moose.setError("无法预览此文件")}
+              onError={() => moose.setError("Cannot preview this file.")}
             />
           </>
         ) : (
           <ScrollView contentContainerStyle={[s.page, { gap: 12 }]}>
-            {moose.artifacts.length === 0 && <Caption>暂无文件或报告</Caption>}
+            {moose.artifacts.length === 0 && (
+              <Caption>No files or reports</Caption>
+            )}
             {moose.artifacts.map((a) => (
               <Button
                 key={a.ref}

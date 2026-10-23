@@ -1,5 +1,7 @@
 import { Platform } from "react-native";
 import { createIshWorkspaceFactory } from "./ish";
+import { readyExecution } from "../termux/recovery";
+import { acquireBackground, setApprovalWaiting } from "./background";
 import { createExpoWorkspace } from "pi-durable-expo-env";
 import { openDatabaseAsync } from "expo-sqlite";
 import * as SecureStore from "expo-secure-store";
@@ -28,7 +30,7 @@ export const credentials = {
       ? (await codexAuth.status()).connected
       : !!(await SecureStore.getItemAsync(keyName(provider))),
   set: async (provider: string, key: string) => {
-    if (!key.trim()) throw new Error("请输入 API Key");
+    if (!key.trim()) throw new Error("Enter an API key");
     await SecureStore.setItemAsync(keyName(provider), key.trim(), {
       keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
     });
@@ -79,16 +81,29 @@ export async function openMobile() {
           "SELECT value FROM moose_data WHERE key=?",
           `title:${request.conversationId}`,
         );
-        return (
-          (!request.skillId || !!skill) &&
-          approvals.request(
-            request,
-            skill?.name ?? "Moose · 当前对话",
-            title
-              ? (JSON.parse(title.value) as string)
-              : `对话 ${request.conversationId}`,
-          )
+        const waitKey = `permission-wait:${request.conversationId}`;
+        await database.run(
+          "INSERT OR REPLACE INTO moose_data(key,value) VALUES (?,?)",
+          waitKey,
+          JSON.stringify({
+            skillId: request.skillId,
+            permission: request.permission,
+          }),
         );
+        setApprovalWaiting(true);
+        try {
+          return await ((!request.skillId || !!skill) &&
+            approvals.request(
+              request,
+              skill?.name ?? "Moose · Current conversation",
+              title
+                ? (JSON.parse(title.value) as string)
+                : `Conversation ${request.conversationId}`,
+            ));
+        } finally {
+          setApprovalWaiting(false);
+          await database.run("DELETE FROM moose_data WHERE key=?", waitKey);
+        }
       },
     );
     engine = await MobileEngine.open(
@@ -105,6 +120,7 @@ export async function openMobile() {
         authorize: (...args) => permissions.authorize(...args),
       },
       { shell: !!termuxFactory },
+      readyExecution(acquireBackground, termux.ensureReady),
     );
     const settings = await engine.read<ModelSettings>(
       "settings",
@@ -133,7 +149,7 @@ export async function openMobile() {
       } catch {}
       throw new AggregateError(
         [error, cleanup],
-        "初始化失败，运行时资源清理也失败，请重新打开应用",
+        "Initialization and runtime cleanup failed. Reopen the app.",
       );
     }
     throw error;

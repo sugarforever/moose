@@ -71,7 +71,14 @@ export function capabilityExtension(
             skills: enabled.map((s) => ({
               id: s.id,
               name: s.name,
-              resources: [{ path: "SKILL.md", source: s.source }],
+              resources: s.files
+                ? s.files.map((f) => ({
+                    path: f.path,
+                    size: f.size,
+                    source: "installed",
+                  }))
+                : [{ path: "SKILL.md", source: s.source }],
+              workspaceTool: s.files ? "skill_workspace" : undefined,
               resourceBase: new URL(".", s.source).href,
             })),
             scope: options.termux

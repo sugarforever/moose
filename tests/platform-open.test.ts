@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 const state = vi.hoisted(() => ({
   failure: "factory",
+  approve: undefined as undefined | (() => Promise<boolean>),
   native: undefined as any,
   db: undefined as any,
 }));
@@ -32,10 +33,17 @@ vi.mock("../src/platform/codex", () => ({
   },
 }));
 vi.mock("../src/platform/capabilities", () => ({
-  approvals: { request: async () => false },
+  approvals: { request: async () => (state.approve ? state.approve() : false) },
   openCapabilityDatabase: async () => {
     throw new Error("unused");
   },
+}));
+vi.mock("../src/platform/background", () => ({
+  setApprovalWaiting: () => {},
+  acquireBackground: async () => ({
+    signal: new AbortController().signal,
+    release: async () => {},
+  }),
 }));
 import { openMobile } from "../src/platform/open";
 afterEach(() => {
@@ -62,3 +70,46 @@ for (const failure of ["factory", "settings"])
     await expect(openMobile()).rejects.toThrow(failure + " failed");
     expect(db.isOpen).toBe(false);
   });
+
+it("persists an undecided permission until the human response settles", async () => {
+  state.failure = "none";
+  const db = (state.db = new DatabaseSync(":memory:"));
+  state.native = {
+    execAsync: async (sql: string) => db.exec(sql),
+    runAsync: async (sql: string, ...p: any[]) => {
+      db.prepare(sql).run(...p);
+    },
+    getFirstAsync: async (sql: string, ...p: any[]) =>
+      db.prepare(sql).get(...p) ?? null,
+    getAllAsync: async (sql: string, ...p: any[]) => db.prepare(sql).all(...p),
+    closeAsync: async () => db.close(),
+  };
+  let entered = false;
+  let decide!: (allow: boolean) => void;
+  state.approve = () => {
+    entered = true;
+    return new Promise((resolve) => {
+      decide = resolve;
+    });
+  };
+  const runtime = await openMobile();
+  try {
+    const pending = runtime.permissions.authorize(
+      1,
+      "",
+      "database:read",
+      new AbortController().signal,
+    );
+    while (!entered) await new Promise((resolve) => setTimeout(resolve, 1));
+    const row = await runtime.engine.read("permission-wait:1", null);
+    expect(row).toEqual({ skillId: "", permission: "database:read" });
+    decide(false);
+    expect(await pending).toBe(false);
+    expect(await runtime.engine.read("permission-wait:1", null)).toBeNull();
+    expect(await runtime.permissions.list(1)).toEqual([]);
+  } finally {
+    decide?.(false);
+    state.approve = undefined;
+    await runtime.engine.close();
+  }
+});

@@ -1,3 +1,4 @@
+import { observeTermuxRecovery } from "../termux/recovery";
 import {
   useCallback,
   useEffect,
@@ -9,17 +10,35 @@ import { AppState } from "react-native";
 import { randomUUID } from "expo-crypto";
 import { fetch as nativeFetch } from "expo/fetch";
 import { termux } from "../platform/termux";
-import { replaceRuntime } from "../termux/switch";
+import {
+  getMobileRuntime,
+  recoverMobileRuntime,
+  changeMobileEnvironment,
+  RuntimeUnavailable,
+} from "../platform/runtime-owner";
+import { acquireBackground } from "../platform/background";
 import type { SetupPhase } from "../termux/setup";
-import { openMobile, credentials, defaultSettings } from "../platform/open";
-import { loadSkill, chatMessages } from "../generated/runtime";
+import { credentials, defaultSettings } from "../platform/open";
+import {
+  loadSkill,
+  chatMessages,
+  executionStatus,
+  executionDetails,
+  statusLabel,
+} from "../generated/runtime";
 import type {
   MobileEngine,
-  ChatMessage,
   ModelSettings,
   SavedCheckpoint,
 } from "../runtime/engine";
 import type { Skill } from "../skills/skills";
+import {
+  chatActivity,
+  toolMessages,
+  type Activity,
+  type ActivityMessage,
+} from "./chat-activity";
+import type { ExecutionStatus } from "../runtime/execution-diagnostics";
 import type { LiveState } from "@earendil-works/pi-durable";
 import { codexAuth } from "../platform/codex";
 import { loginCodexBrowser } from "../platform/codex-browser";
@@ -41,7 +60,7 @@ export type ChatGPTLogin = {
   error?: string;
 };
 
-type Runtime = Awaited<ReturnType<typeof openMobile>>;
+type Runtime = Awaited<ReturnType<typeof getMobileRuntime>>;
 export type Pending = {
   conversationId: number;
   text: string;
@@ -52,15 +71,20 @@ export function useMoose() {
   const [artifacts, setArtifacts] = useState<Omit<Artifact, "text">[]>([]);
   const [grants, setGrants] = useState<Grant[]>([]);
   const [runtime, setRuntime] = useState<Runtime>();
-  const runtimeOwner = useRef<Runtime | undefined>(undefined);
   const appMounted = useRef(true);
   const [settings, setSettings] = useState<ModelSettings>(defaultSettings);
   const [conversationId, setConversationId] = useState<number>();
   const [conversations, setConversations] = useState<
     { id: number; title: string }[]
   >([]);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ActivityMessage[]>([]);
+  const [activity, setActivity] = useState<Activity[]>([]);
   const [partial, setPartial] = useState("");
+  const [executionDetail, setExecutionDetail] = useState("");
+  const [execution, setExecution] = useState<ExecutionStatus>({
+    state: "idle",
+    retries: 0,
+  });
   const [busy, setBusy] = useState(false);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
@@ -99,24 +123,24 @@ export function useMoose() {
       setError("");
       await operation();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "操作失败，请重试");
+      setError(
+        cause instanceof Error ? cause.message : "Operation failed. Try again.",
+      );
     }
   }, []);
   useEffect(() => {
     let disposed = false;
     appMounted.current = true;
-    let opened: MobileEngine | undefined;
     void run(async () => {
-      const next = await openMobile();
-      opened = next.engine;
-      if (disposed) {
-        await next.engine.close();
-        return;
-      }
-      runtimeOwner.current = next;
+      const next = await getMobileRuntime();
+      if (disposed) return;
       setRuntime(next);
-      setSettings(next.settings);
-      const key = await credentials.has(next.settings.provider);
+      const savedSettings = await next.engine.read<ModelSettings>(
+        "settings",
+        defaultSettings,
+      );
+      setSettings(savedSettings);
+      const key = await credentials.has(savedSettings.provider);
       setHasCredentials(!!key);
       await refresh(next.engine);
       const chats = await next.engine.listConversations();
@@ -129,15 +153,11 @@ export function useMoose() {
         chats[0]?.id ??
         Number((await next.engine.newConversation()).id);
       setConversationId(id);
-      if (key) next.engine.resume();
+      await recoverMobileRuntime(next);
     });
     return () => {
       disposed = true;
       appMounted.current = false;
-      const current = runtimeOwner.current;
-      runtimeOwner.current = undefined;
-      if (current) void current.engine.close().catch(() => {});
-      else if (opened) void opened.close().catch(() => {});
       loginController.current?.abort();
     };
   }, [refresh, run]);
@@ -149,11 +169,14 @@ export function useMoose() {
     setGrants([]);
     setMessages([]);
     setPartial("");
+    setActivity([]);
     setBusy(false);
+    setExecution({ state: "idle", retries: 0 });
+    setExecutionDetail("");
     void run(async () => {
       const [activeSkills, outbox] = await Promise.all([
         runtime.engine.read<string[]>(`skills:${conversationId}`, []),
-        runtime.engine.read<Pending | null>(`outbox:${conversationId}`, null),
+        runtime.engine.pendingRequest(conversationId),
       ]);
       if (disposed) return;
       setSelected(activeSkills);
@@ -161,10 +184,15 @@ export function useMoose() {
       await runtime.engine.write("activeConversation", conversationId);
       const detach = await runtime.engine.watch(conversationId, (view) => {
         if (disposed) return;
-        const next = chatMessages(view);
+        const next = [...chatMessages(view), ...toolMessages(view)].sort(
+          (a, b) => a.entryId - b.entryId,
+        );
         setMessages(next);
+        setExecution(executionStatus(view));
+        setExecutionDetail(executionDetails(view));
         const live = view.docs["pi.live"] as unknown as LiveState | undefined;
         setBusy(!!live?.run);
+        setActivity(chatActivity(live));
         setPartial(
           live?.generation?.message?.content
             .filter((block) => block.type === "text")
@@ -182,34 +210,52 @@ export function useMoose() {
   }, [runtime, conversationId, run]);
   useEffect(() => {
     if (!runtime) return;
+    const stopRecovery = observeTermuxRecovery(
+      AppState,
+      termux.ensureReady,
+      (cause) => {
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "Check or repair Termux in Settings.",
+        );
+      },
+    );
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active")
+      if (state === "active") {
         void run(async () => {
           const ready = await credentials.has(settings.provider);
           setHasCredentials(ready);
-          if (ready) runtime.engine.resume();
           await refresh(runtime.engine);
         });
+      }
     });
-    // Read task progress only while this app is foregrounded. No background service is promised.
+    // Views subscribe to state; foreground transitions never reopen or resume a Harness.
     const timer = setInterval(() => {
       if (AppState.currentState === "active")
-        void refresh(runtime.engine).catch(() => {});
+        void (async () => {
+          await refresh(runtime.engine);
+          if (conversationId)
+            setPending(await runtime.engine.pendingRequest(conversationId));
+        })().catch(() => {});
     }, 3000);
     return () => {
+      stopRecovery();
       subscription.remove();
       clearInterval(timer);
     };
-  }, [runtime, settings.provider, refresh, run]);
+  }, [runtime, settings.provider, conversationId, refresh, run]);
   async function send(text: string, retry?: Pending) {
     if (!runtime || !conversationId || inFlight.current) return;
     if (!hasCredentials) {
-      setError("请先在设置中配置 API Key 或登录 ChatGPT");
+      setError("Add an API key or sign in to ChatGPT in Settings first.");
       return;
     }
     if (!text.trim()) return;
     if (pending && !retry) {
-      setError("请先确认待处理的请求，使用相同 ID 重试。");
+      setError(
+        "Resolve the pending request first by retrying with the same ID.",
+      );
       return;
     }
     inFlight.current = true;
@@ -220,32 +266,42 @@ export function useMoose() {
       requestId: randomUUID(),
     };
     await run(async () => {
-      await runtime.engine.prepareConversation(item.conversationId, settings);
-      await runtime.engine.write(`outbox:${item.conversationId}`, item);
-      setPending(item);
-      const submission = await runtime.engine.submit(
-        item.conversationId,
-        item.text,
-        item.requestId,
-      );
-      const result = await submission.wait(runtime.engine.context);
-      await runtime.engine.write(`outbox:${item.conversationId}`, null);
-      setPending(null);
-      if (result.status !== "done") {
-        const ready = await credentials.has(settings.provider);
-        setHasCredentials(ready);
-        if (settings.provider === "openai-codex") {
-          setCodexStatus(await codexAuth.status());
-          if (!ready) throw new Error("ChatGPT 登录已失效，请在设置中重新授权");
-        }
-        throw new Error("本次回答未完成。可以重新运行此任务。");
-      }
-      if (messages.length === 0)
-        await runtime.engine.write(
-          `title:${item.conversationId}`,
-          item.text.slice(0, 30),
+      const lease = await acquireBackground();
+      try {
+        await runtime.engine.prepareConversation(item.conversationId, settings);
+        await runtime.engine.write(`outbox:${item.conversationId}`, item);
+        setPending(item);
+        const submission = await runtime.engine.submit(
+          item.conversationId,
+          item.text,
+          item.requestId,
         );
-      await refresh(runtime.engine);
+        const result = await submission.wait(runtime.engine.context);
+        await runtime.engine.write(`outbox:${item.conversationId}`, null);
+        setPending(null);
+        if (result.status !== "done") {
+          const ready = await credentials.has(settings.provider);
+          setHasCredentials(ready);
+          if (settings.provider === "openai-codex") {
+            setCodexStatus(await codexAuth.status());
+            if (!ready)
+              throw new Error(
+                "Your ChatGPT session has expired. Sign in again in Settings.",
+              );
+          }
+          // The committed task status and attempt details explain the outcome.
+          // Do not add a second generic error that outlives a recovered attempt.
+          return;
+        }
+        if (messages.length === 0)
+          await runtime.engine.write(
+            `title:${item.conversationId}`,
+            item.text.slice(0, 30),
+          );
+        await refresh(runtime.engine);
+      } finally {
+        await lease.release();
+      }
     });
     inFlight.current = false;
     setWorking(false);
@@ -268,7 +324,7 @@ export function useMoose() {
       try {
         return await runtime.engine.capabilities?.artifact(conversationId, ref);
       } catch {
-        setError("无法打开此文件");
+        setError("Cannot open this file.");
       }
     },
     shareArtifact: (artifact: Artifact) => run(() => exportArtifact(artifact)),
@@ -292,56 +348,28 @@ export function useMoose() {
       signal: AbortSignal,
       onPhase: (phase: SetupPhase) => void,
     ) => {
-      const current = runtimeOwner.current;
-      if (!current || inFlight.current) throw new Error("请等待当前操作完成");
-      const previous = current.executionEnvironment === "termux";
+      if (!runtime || inFlight.current)
+        throw new Error("Wait for the current operation to finish.");
       inFlight.current = true;
       setWorking(true);
       setError("");
       try {
-        const changed = await replaceRuntime({
-          current,
-          assertIdle: async () => {
-            signal.throwIfAborted();
-            await current.engine.assertEnvironmentSwitchIdle();
-            signal.throwIfAborted();
-          },
-          select: () => termux.enable(enabled, signal, onPhase),
-          close: async (old) => {
-            setRuntime(undefined);
-            runtimeOwner.current = undefined;
-            await old.engine.close();
-          },
-          open: async () => {
-            signal.throwIfAborted();
-            const next = await openMobile();
-            if (signal.aborted) {
-              await next.engine.close();
-              signal.throwIfAborted();
-            }
-            return next;
-          },
-          restore: () => termux.select(previous),
-          reopen: () => openMobile(),
-        });
-        if (!appMounted.current) {
-          await changed.runtime.engine.close();
-          return;
-        }
-        runtimeOwner.current = changed.runtime;
+        const changed = await changeMobileEnvironment(enabled, signal, onPhase);
+        if (!appMounted.current) return;
         setRuntime(changed.runtime);
         setSettings(changed.runtime.settings);
         await refresh(changed.runtime.engine);
-        if (await credentials.has(changed.runtime.settings.provider))
-          changed.runtime.engine.resume();
+        await recoverMobileRuntime(changed.runtime);
         if (changed.error) throw changed.error;
       } catch (error) {
-        if (appMounted.current)
+        if (appMounted.current) {
+          if (error instanceof RuntimeUnavailable) setRuntime(undefined);
           setError(
             error instanceof Error
               ? error.message
-              : "切换失败，请重试打开运行时",
+              : "Switch failed. Try reopening the runtime.",
           );
+        }
         throw error;
       } finally {
         inFlight.current = false;
@@ -349,17 +377,13 @@ export function useMoose() {
       }
     },
     retryRuntime: async () => {
-      if (inFlight.current || runtimeOwner.current) return;
+      if (inFlight.current || runtime) return;
       inFlight.current = true;
       setWorking(true);
       setError("");
       try {
-        const next = await openMobile();
-        if (!appMounted.current) {
-          await next.engine.close();
-          return;
-        }
-        runtimeOwner.current = next;
+        const next = await getMobileRuntime();
+        if (!appMounted.current) return;
         setRuntime(next);
         setSettings(next.settings);
         await refresh(next.engine);
@@ -369,13 +393,14 @@ export function useMoose() {
             chats[0]?.id ??
             Number((await next.engine.newConversation()).id),
         );
-        const ready = await credentials.has(next.settings.provider);
-        setHasCredentials(ready);
-        if (ready) next.engine.resume();
+        setHasCredentials(await credentials.has(next.settings.provider));
+        await recoverMobileRuntime(next);
       } catch (error) {
         if (appMounted.current)
           setError(
-            error instanceof Error ? error.message : "无法打开运行时，请重试",
+            error instanceof Error
+              ? error.message
+              : "Cannot open the runtime. Try again.",
           );
       } finally {
         inFlight.current = false;
@@ -387,7 +412,23 @@ export function useMoose() {
     conversations,
     messages,
     partial,
+    activity,
     busy,
+    executionNeedsReview: execution.unknownEffects,
+    executionDetail,
+    acknowledgeUnknownEffects: () =>
+      run(async () => {
+        if (!runtime || !conversationId) return;
+        await runtime.engine.acknowledgeUnknownEffects(conversationId);
+        setExecution(
+          executionStatus(await runtime.engine.view(conversationId)),
+        );
+      }),
+    executionLabel: statusLabel(
+      approval?.conversationId === conversationId
+        ? { ...execution, state: "waiting_authorization" }
+        : execution,
+    ),
     working,
     error,
     setError,
@@ -430,7 +471,10 @@ export function useMoose() {
         if (controller.signal.aborted) return;
         setChatGPTLogin({
           phase: "error",
-          error: cause instanceof Error ? cause.message : "授权失败，请重试",
+          error:
+            cause instanceof Error
+              ? cause.message
+              : "Authorization failed. Try again.",
         });
       } finally {
         if (loginController.current === controller)
@@ -473,7 +517,7 @@ export function useMoose() {
         if (runtime && conversationId) {
           await runtime.engine.checkpoint(
             conversationId,
-            `检查点 ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
+            `Checkpoint ${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`,
           );
           await refresh(runtime.engine);
         }
@@ -511,7 +555,8 @@ export function useMoose() {
     repeat: (prompt: string, minutes: number, count: number) =>
       run(async () => {
         if (!runtime || !conversationId) return;
-        if (!hasCredentials) throw new Error("请先在设置中配置模型连接");
+        if (!hasCredentials)
+          throw new Error("Configure a model connection in Settings first.");
         await runtime.engine.prepareConversation(conversationId, settings);
         await runtime.engine.repeat(
           conversationId,
@@ -532,19 +577,19 @@ export function useMoose() {
       run(async () => {
         if (!runtime) return;
         if (!runtime.models.getModel(next.provider, next.modelId))
-          throw new Error("模型不在当前 Pi 模型列表中，请选择列表中的模型");
+          throw new Error("Choose a model from the current Pi model list.");
         if (key.trim() && next.provider !== "openai-codex")
           await credentials.set(next.provider, key);
         const ready = await credentials.has(next.provider);
         if (next.provider === "openai-codex" && !ready)
-          throw new Error("请先完成 ChatGPT 设备码登录");
+          throw new Error("Complete ChatGPT device code sign-in first.");
         if (conversationId)
           await runtime.engine.prepareConversation(conversationId, next);
         await runtime.engine.write("settings", next);
         runtime.engine.updateSettings(next);
         setSettings(next);
         setHasCredentials(ready);
-        if (ready) runtime.engine.resume();
+        if (ready) await runtime.engine.resume();
       }),
     removeKey: () =>
       run(async () => {
