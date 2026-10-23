@@ -28,7 +28,10 @@ export class RuntimeOwner<T> {
   }
 }
 export type ExecutionLease = { signal: AbortSignal; release(): Promise<void> };
-export type ExecutionGuard = (signal?: AbortSignal) => Promise<ExecutionLease>;
+export type ExecutionGuard = (
+  signal?: AbortSignal,
+  conversationIds?: readonly number[],
+) => Promise<ExecutionLease>;
 type Session = {
   token: string;
   controller: AbortController;

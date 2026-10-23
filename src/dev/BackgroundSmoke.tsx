@@ -29,6 +29,7 @@ import { responseEvents, sseResponse } from "./controlled-sse";
 
 let runtime: Promise<MobileEngine> | undefined;
 let requests = 0;
+const attempts = new Map<string, number>();
 function getRuntime() {
   return (runtime ??= (async () => {
     const db = await openDatabaseAsync("background-smoke.sqlite");
@@ -36,6 +37,20 @@ function getRuntime() {
       async () => "controlled-fixture-only",
       (async (_url, init) => {
         requests++;
+        const bodyText = String(init?.body);
+        const probe = /probe=(\d+)/.exec(bodyText)?.[1] ?? "unknown";
+        const attempt = (attempts.get(probe) ?? 0) + 1;
+        attempts.set(probe, attempt);
+        if (
+          bodyText.includes("mode=failure") ||
+          (bodyText.includes("mode=retry") && attempt === 1)
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+          const retry = bodyText.includes("mode=retry");
+          return sseResponse(
+            `data: ${JSON.stringify({ type: "response.failed", response: { id: "controlled", error: { code: retry ? "server_error" : "invalid_request_error", message: retry ? "Network error" : "Invalid request access_token=fixture-secret" } } })}\n\n`,
+          );
+        }
         if (String(init?.body).includes("network=1")) {
           console.log(
             "MooseBackgroundSmoke network request",
@@ -102,7 +117,7 @@ function getRuntime() {
       {},
       acquireBackground,
     );
-    configureBackground((cause) => engine.stopAll(cause));
+    configureBackground((cause) => engine.stopAll(cause), engine);
     await cancelInterruptedBackground((cause) => engine.stopAll(cause));
     await engine.resume();
     return engine;
@@ -131,7 +146,7 @@ export function BackgroundSmokeApp() {
       })
       .catch((e) => setStatus(String(e)));
   }, []);
-  async function start(delay = 15000, network = false) {
+  async function start(delay = 15000, network = false, mode = "success") {
     try {
       setStatus("Starting");
       const engine = await getRuntime();
@@ -143,7 +158,7 @@ export function BackgroundSmokeApp() {
       });
       const submission = await engine.submit(
         chat.id,
-        `Controlled file tool delay=${delay} network=${network ? 1 : 0} probe=${chat.id}`,
+        `Controlled file tool delay=${delay} network=${network ? 1 : 0} mode=${mode} probe=${chat.id}`,
         `native-${Date.now()}`,
       );
       setStatus("Running: press Home now");
@@ -179,6 +194,21 @@ export function BackgroundSmokeApp() {
     <SafeAreaView style={{ padding: 30 }}>
       <Text>{status}</Text>
       <Button title="Run background probe" onPress={() => void start()} />
+      <Button
+        title="Run failure probe"
+        onPress={() => void start(15000, false, "failure")}
+      />
+      <Button
+        title="Run retry probe"
+        onPress={() => void start(15000, false, "retry")}
+      />
+      <Button
+        title="Run two concurrent probes"
+        onPress={() => {
+          void start(15000);
+          void start(25000);
+        }}
+      />
       <Button
         title="Run 5 and 10 minute lock probes"
         onPress={() => {

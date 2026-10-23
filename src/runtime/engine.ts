@@ -92,7 +92,9 @@ const createRepeatTask = (guard?: ExecutionGuard) =>
     initial: () => ({ phase: "run", completed: 0, at: 0 }),
     phases: {
       run: async (task, runtime, context) => {
-        const lease = await guard?.(runtime.signal);
+        const lease = await guard?.(runtime.signal, [
+          Number(runtime.conversationId),
+        ]);
         try {
           if (lease?.signal.aborted) throw new Error("Task stopped");
           const checkpoint = task.state.checkpoint;
@@ -534,7 +536,7 @@ export class MobileEngine {
   }
   async submit(id: number, text: string, requestId: string) {
     if (!text.trim()) throw new Error("Enter a message");
-    const lease = await this.executionGuard?.();
+    const lease = await this.executionGuard?.(undefined, [id]);
     try {
       await this.resume();
       const conversation = await this.conversation(id);
@@ -846,7 +848,9 @@ export class MobileEngine {
         .filter((item) => item.record.kind !== "moose.repeat")
         .map((item) => Number(item.record.conversationId)),
     ]);
-    const lease = ids.size ? await this.executionGuard?.() : undefined;
+    const lease = ids.size
+      ? await this.executionGuard?.(undefined, [...ids])
+      : undefined;
     if (lease?.signal.aborted) {
       await lease.release();
       throw new Error("Task stopped");

@@ -1,6 +1,6 @@
 # Moose
 
-Moose v0.7.0 is an open source AI agent for iOS and Android powered by Pi Durable. Expo / React Native provides the interface, Pi Durable runs on the phone's Hermes runtime, and SQLite stores conversations and tasks. Model requests go directly to the provider; no Moose backend is required.
+Moose v0.7.1 is an open source AI agent for iOS and Android powered by Pi Durable. Expo / React Native provides the interface, Pi Durable runs on the phone's Hermes runtime, and SQLite stores conversations and tasks. Model requests go directly to the provider; no Moose backend is required.
 
 ## Features
 
@@ -271,6 +271,8 @@ Recurring tasks do not hold the service while waiting. An iteration due while th
 Chat shows the current task separately from historical reply attempts: running, retrying, waiting for network or authorization, completed, failed or stopped. Tap the task status or an attempt's Details for bounded, credential-redacted errors, stage, time and retry count. Native notification stop, budget expiry, startup timeout, permission loss, runtime destruction and service destruction keep distinct cancellation reasons. These diagnostics are persisted with the conversation (latest 200 events); they are separate from session-only Termux transport diagnostics.
 
 Transient model failures use Pi's durable retry checkpoint, with at most three generation retries and exponential 2/4/8-second backoff. Reopening projects committed messages and tool results and reconciles already-settled outbox items; it does not resubmit a task on foreground return. A failed attempt that later recovered is labelled as history. Network waiting is inferred from a transport error with a scheduled retry, rather than a claim that connectivity has been measured. Authentication and quota errors are not retried automatically. An operation whose effects are unknown blocks further mutations across restart and context compaction; inspect its effects before choosing **Review interrupted operation → Allow further changes**. That action does not rerun the command. See [background recovery design and validation](docs/background-recovery.md).
+
+Android’s ongoing notification shows committed execution progress. Background completion or failure posts one result alert per conversation; foreground results are silent. Tap a single-task or result notification to open its saved conversation without resubmitting it. Multiple active conversations share a count notification and the existing Stop-all action. Failure alerts use brief fixed categories without provider bodies or credentials. Task results can be muted separately in Android notification settings.
 
 System reclamation, Doze, network loss and vendor power policies can still interrupt execution. Process death cannot preserve the original TCP connection or Promise, and recovery cannot guarantee a model is billed only once. Force-stop is respected. iOS retains its existing suspension behavior. The Android `specialUse` declaration describes finite AI work; this does not imply Google Play approval.
 

@@ -546,3 +546,73 @@ it("retries Android's stream-level connection abort while retaining its original
     await engine.close();
   }
 });
+
+it("observes only admitted conversation IDs and reads committed results before service release", async () => {
+  const { ExecutionNotifications } =
+    await import("../src/runtime/execution-notifications");
+  const root = await mkdtemp(join(tmpdir(), "moose-notification-"));
+  const path = join(root, "db.sqlite");
+  let requests = 0;
+  const models = createMobileModels(async () => "controlled", (async () => {
+    requests++;
+    return sseResponse(responseEvents(1, [], "Committed answer"));
+  }) as typeof fetch);
+  const results: { id: number; state: string }[] = [];
+  const releases: number[] = [];
+  let notifications: InstanceType<typeof ExecutionNotifications>;
+  let engine: MobileEngine;
+  const snapshot = (view: Awaited<ReturnType<MobileEngine["view"]>>) => ({
+    revision: JSON.stringify([
+      view.entries.at(-1),
+      view.docs?.["moose.execution"],
+    ]),
+    status: executionStatus(view),
+  });
+  engine = await MobileEngine.open(
+    database(path),
+    models,
+    settings,
+    Date.now,
+    undefined,
+    undefined,
+    {},
+    async (_signal, ids = []) => {
+      const finish = await notifications.track(ids);
+      return {
+        signal: new AbortController().signal,
+        release: async () => {
+          await finish();
+          releases.push(results.length);
+        },
+      };
+    },
+  );
+  notifications = new ExecutionNotifications({
+    read: async (id) => snapshot(await engine.view(id)),
+    watch: (id, listener) =>
+      engine.watch(id, (view) => listener(snapshot(view))),
+    progress: () => {},
+    result: async (id, status) => {
+      expect((await engine.messages(id)).at(-1)?.text).toBe("Committed answer");
+      results.push({ id, state: status.state });
+    },
+  });
+  try {
+    const chat = await engine.newConversation();
+    const sub = await engine.submit(chat.id, "answer", "notification-one");
+    await sub.wait(engine.context);
+    for (let i = 0; i < 100 && !releases.length; i++)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(results).toEqual([{ id: chat.id, state: "completed" }]);
+    expect(releases.at(-1)).toBe(1);
+    const again = await engine.submit(chat.id, "answer", "notification-one");
+    await again.wait(engine.context);
+    for (let i = 0; i < 100 && releases.length < 2; i++)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(requests).toBe(1);
+    expect(results).toHaveLength(1);
+  } finally {
+    await engine.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

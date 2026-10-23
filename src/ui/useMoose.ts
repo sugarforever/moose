@@ -6,7 +6,8 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { AppState } from "react-native";
+import { AppState, Linking } from "react-native";
+import { conversationLink } from "./conversation-link";
 import { randomUUID } from "expo-crypto";
 import { fetch as nativeFetch } from "expo/fetch";
 import { termux } from "../platform/termux";
@@ -74,6 +75,48 @@ export function useMoose() {
   const appMounted = useRef(true);
   const [settings, setSettings] = useState<ModelSettings>(defaultSettings);
   const [conversationId, setConversationId] = useState<number>();
+  const [notificationRoute, setNotificationRoute] = useState<{
+    id: number;
+    sequence: number;
+  }>();
+  const [notificationNavigation, setNotificationNavigation] = useState(0);
+  useEffect(() => {
+    let sequence = 0;
+    let disposed = false;
+    const receive = (url: string | null | undefined) => {
+      const id = conversationLink(url ?? null);
+      if (!disposed && id) setNotificationRoute({ id, sequence: ++sequence });
+    };
+    const subscription = Linking.addEventListener("url", ({ url }) =>
+      receive(url),
+    );
+    void Linking.getInitialURL()
+      .then((url) => {
+        if (!sequence) receive(url);
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+      subscription.remove();
+    };
+  }, []);
+  useEffect(() => {
+    if (!runtime || !notificationRoute) return;
+    let disposed = false;
+    void run(async () => {
+      const chats = await runtime.engine.listConversations();
+      if (disposed) return;
+      setNotificationRoute(undefined);
+      if (!chats.some((chat) => chat.id === notificationRoute.id)) return;
+      setConversations(chats);
+      setConversationId(notificationRoute.id);
+      setNotificationNavigation((value) => value + 1);
+    });
+    return () => {
+      disposed = true;
+    };
+  }, [runtime, notificationRoute]);
+
   const [conversations, setConversations] = useState<
     { id: number; title: string }[]
   >([]);
@@ -134,7 +177,6 @@ export function useMoose() {
     void run(async () => {
       const next = await getMobileRuntime();
       if (disposed) return;
-      setRuntime(next);
       const savedSettings = await next.engine.read<ModelSettings>(
         "settings",
         defaultSettings,
@@ -153,6 +195,7 @@ export function useMoose() {
         chats[0]?.id ??
         Number((await next.engine.newConversation()).id);
       setConversationId(id);
+      setRuntime(next);
       await recoverMobileRuntime(next);
     });
     return () => {
@@ -409,6 +452,7 @@ export function useMoose() {
     },
     settings,
     conversationId,
+    notificationNavigation,
     conversations,
     messages,
     partial,

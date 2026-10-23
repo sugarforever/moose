@@ -90,7 +90,7 @@ export async function openMobile() {
             permission: request.permission,
           }),
         );
-        setApprovalWaiting(true);
+        setApprovalWaiting(request.conversationId, true);
         try {
           return await ((!request.skillId || !!skill) &&
             approvals.request(
@@ -101,8 +101,8 @@ export async function openMobile() {
                 : `Conversation ${request.conversationId}`,
             ));
         } finally {
-          setApprovalWaiting(false);
           await database.run("DELETE FROM moose_data WHERE key=?", waitKey);
+          setApprovalWaiting(request.conversationId, false);
         }
       },
     );
