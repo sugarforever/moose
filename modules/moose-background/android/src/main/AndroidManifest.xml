@@ -7,7 +7,7 @@
     <service android:name="dev.verysmallwoods.background.MooseExecutionService"
       android:exported="false" android:foregroundServiceType="specialUse" android:stopWithTask="false">
       <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-        android:value="Continue user-initiated finite AI conversations: consume streaming responses, execute local tools and commit SQLite while the Activity is hidden. One shared service, visible stop action, maximum 30 minutes; no scheduled wakeup or automatic restart." />
+        android:value="Continue user-initiated AI conversations: consume streaming responses, execute local tools and commit SQLite while the Activity is hidden. One shared service with a visible stop action, released when active runs finish; no scheduled wakeup or automatic restart." />
     </service>
   </application>
 </manifest>
