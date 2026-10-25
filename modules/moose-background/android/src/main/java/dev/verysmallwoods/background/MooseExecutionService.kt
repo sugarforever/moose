@@ -22,12 +22,11 @@ class MooseExecutionService : Service() {
   private var token: String? = null
   private var task: Int? = null
   private var context: ReactContext? = null
-  private var lock: PowerManager.WakeLock? = null
+  private var executionLock: ExecutionWakeLock? = null
   private var stopping = false
   private var notification: NotificationCompat.Builder? = null
   private var progressItems: List<Map<String, Any>> = emptyList()
   private val approvals = mutableSetOf<Long>()
-  private val budget = Runnable { cancel("budget_expired") }
   private val handshake = Runnable { cancel("handshake_timeout") }
   private val unresponsive = Runnable {
     // Persisted cancellation is handled before recovery on next explicit launch.
@@ -66,7 +65,7 @@ class MooseExecutionService : Service() {
       val notification = NotificationCompat.Builder(this, CHANNEL)
         .setSmallIcon(android.R.drawable.stat_notify_sync)
         .setContentTitle("Moose is running tasks")
-        .setContentText("Up to 30 minutes. Stop cancels all tasks.")
+        .setContentText("Running. Stop cancels all tasks.")
         .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
         .setOngoing(true).setOnlyAlertOnce(true)
         .addAction(android.R.drawable.ic_media_pause, "Stop", stop)
@@ -74,10 +73,22 @@ class MooseExecutionService : Service() {
       this.notification = notification
       ServiceCompat.startForeground(this, 7301, notification.build(),
         if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)
-      lock = (getSystemService(POWER_SERVICE) as PowerManager)
-        .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Moose:finite-execution")
-        .apply { setReferenceCounted(false); acquire(BUDGET + 15000) }
-      handler.postDelayed(budget, BUDGET)
+      val lock = (getSystemService(POWER_SERVICE) as PowerManager)
+        .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Moose:execution")
+        .apply { setReferenceCounted(false) }
+      executionLock = ExecutionWakeLock(
+        object : ExecutionWakeLock.Scheduler {
+          override fun postDelayed(callback: Runnable, delay: Long) {
+            check(handler.postDelayed(callback, delay)) { "Execution handler stopped" }
+          }
+          override fun removeCallbacks(callback: Runnable) { handler.removeCallbacks(callback) }
+        },
+        object : ExecutionWakeLock.Lock {
+          override fun acquire(timeout: Long) { lock.acquire(timeout) }
+          override fun release() { if (lock.isHeld) lock.release() }
+        },
+        Runnable { cancel("wake_lock_failed") },
+      ).also { it.start() }
       handler.postDelayed(handshake, 15000)
       val data = Arguments.createMap().apply { putString("token", requested) }
       task = HeadlessJsTaskContext.getInstance(pending.context)
@@ -157,8 +168,8 @@ class MooseExecutionService : Service() {
     token = null
     context = null
     notification = null
-    if (lock?.isHeld == true) lock?.release()
-    lock = null
+    executionLock?.stop()
+    executionLock = null
     stopForeground(STOP_FOREGROUND_REMOVE)
     stopSelf()
     if (instance === this) instance = null
@@ -202,7 +213,6 @@ class MooseExecutionService : Service() {
     }
     private const val PREFS = "moose-execution-control"
     private const val ACTION_STOP = "dev.verysmallwoods.moose.STOP_EXECUTION"
-    private const val BUDGET = 30L * 60 * 1000
     private data class Admission(val token: String, val context: ReactContext, val promise: Promise)
     private var admission: Admission? = null
     var instance: MooseExecutionService? = null
